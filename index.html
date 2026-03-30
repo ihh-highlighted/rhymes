@@ -1,0 +1,1515 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+
+body{
+    background:#000;
+    color:white;
+    font-family:Arial;
+    padding:20px;
+}
+
+*{
+    -webkit-tap-highlight-color:transparent;
+}
+
+textarea{
+    width:100%;
+    height:120px;
+    font-size:18px;
+}
+
+button{
+    padding:10px 15px;
+    margin:5px;
+    border:none;
+    cursor:pointer;
+}
+
+label{
+    display:block;
+    margin-top:10px;
+}
+
+
+
+
+
+.word{
+    display:inline-block;     /* VERY IMPORTANT */
+    white-space:nowrap;       /* NEVER break inside word */
+    opacity:1;
+    transition:.35s;
+    cursor:pointer;
+    margin-right:1px;         /* spacing between words */
+}
+
+.recording .word{
+    opacity:.50;
+}
+
+.highlight{
+    background-size:100% 100%;
+    background-repeat:no-repeat;
+    color:white;
+    transition:.35s;
+}
+
+/* highlight colors */
+
+/* RED */
+.highlight[data-color="red1"]{background-image:linear-gradient(#ffb3b3,#ffb3b3);}
+.highlight[data-color="red2"]{background-image:linear-gradient(#ff6666,#ff6666);}
+.highlight[data-color="red3"]{background-image:linear-gradient(#ff1a1a,#ff1a1a);}
+.highlight[data-color="red4"]{background-image:linear-gradient(#cc0000,#cc0000);}
+.highlight[data-color="red5"]{background-image:linear-gradient(#800000,#800000);}
+
+/* BLUE */
+.highlight[data-color="blue1"]{background-image:linear-gradient(#b3d9ff,#b3d9ff);}
+.highlight[data-color="blue2"]{background-image:linear-gradient(#66b3ff,#66b3ff);}
+.highlight[data-color="blue3"]{background-image:linear-gradient(#1a8cff,#1a8cff);}
+.highlight[data-color="blue4"]{background-image:linear-gradient(#0066cc,#0066cc);}
+.highlight[data-color="blue5"]{background-image:linear-gradient(#003366,#003366);}
+
+/* GREEN */
+.highlight[data-color="green1"]{background-image:linear-gradient(#b3ffcc,#b3ffcc);}
+.highlight[data-color="green2"]{background-image:linear-gradient(#66ff99,#66ff99);}
+.highlight[data-color="green3"]{background-image:linear-gradient(#1aff66,#1aff66);}
+.highlight[data-color="green4"]{background-image:linear-gradient(#00cc44,#00cc44);}
+.highlight[data-color="green5"]{background-image:linear-gradient(#006622,#006622);}
+
+/* PURPLE */
+.highlight[data-color="purple1"]{background-image:linear-gradient(#e0b3ff,#e0b3ff);}
+.highlight[data-color="purple2"]{background-image:linear-gradient(#c266ff,#c266ff);}
+.highlight[data-color="purple3"]{background-image:linear-gradient(#a31aff,#a31aff);}
+.highlight[data-color="purple4"]{background-image:linear-gradient(#7300cc,#7300cc);}
+.highlight[data-color="purple5"]{background-image:linear-gradient(#3d0066,#3d0066);}
+
+/* ORANGE */
+.highlight[data-color="orange1"]{background-image:linear-gradient(#ffd9b3,#ffd9b3);}
+.highlight[data-color="orange2"]{background-image:linear-gradient(#ffb366,#ffb366);}
+.highlight[data-color="orange3"]{background-image:linear-gradient(#ff8c1a,#ff8c1a);}
+.highlight[data-color="orange4"]{background-image:linear-gradient(#cc7000,#cc7000);}
+.highlight[data-color="orange5"]{background-image:linear-gradient(#663800,#663800);}
+
+/* TEAL */
+.highlight[data-color="teal1"]{background-image:linear-gradient(#b3ffff,#b3ffff);}
+.highlight[data-color="teal2"]{background-image:linear-gradient(#66ffff,#66ffff);}
+.highlight[data-color="teal3"]{background-image:linear-gradient(#1affff,#1affff);}
+.highlight[data-color="teal4"]{background-image:linear-gradient(#00cccc,#00cccc);}
+.highlight[data-color="teal5"]{background-image:linear-gradient(#006666,#006666);}
+
+#display{
+    margin-top:200px;
+    font-size:34px;
+    line-height:1.6;
+    user-select:text;
+    margin-left:0px;
+    padding:0px;
+    white-space:pre-wrap;      /* keeps line breaks */
+     word-break:normal;/* breaks long words */
+    overflow-wrap:normal;    /* mobile safety */
+}
+
+#lyricsBox{
+
+    width:100vw;
+    height:100vh;
+    margin-left:0px
+    background:#000;
+    padding:0px;
+    border-radius:0px;
+
+    
+    box-sizing:border-box;
+
+    overflow-y:auto;
+    overflow-x:hidden;
+
+    position:relative;
+
+    scroll-behavior:smooth;
+    touch-action:auto;
+}
+
+/* display text behaviour */
+
+#display{
+
+    white-space:pre-wrap;     /* preserve line breaks */
+    word-break:break-word;    /* break long words */
+    overflow-wrap:anywhere;   /* mobile safety */
+
+}
+
+.colorBtn{
+    width:28px;
+    height:28px;
+    border-radius:8px;
+    border:2px solid rgba(255,255,255,0.15);
+    cursor:pointer;
+    transition:.15s;
+}
+
+.colorBtn:hover{
+    transform:scale(1.15);
+    border-color:white;
+}
+
+.palette{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+}
+
+.player{
+    display: flex;
+    flex-wrap: wrap;      /* ⭐ allows elements to go to next line */
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    background: #000;
+    border-bottom: 1px solid #333;
+}
+
+#seekBar{
+    flex:1;
+}
+
+</style>
+</head>
+
+<body>
+
+<div id="projectsScreen">
+
+<h2>Projects</h2>
+
+<input id="projectName" placeholder="Project name">
+
+<button onclick="createProject()">Create</button>
+
+<div id="projectsList"></div>
+
+</div>
+
+<div id="editorScreen" style="display:none">
+
+<button onclick="goHome()">⬅ Back</button>
+<button onclick="saveProject()">Save</button>
+
+<br><br>
+
+<textarea id="input"></textarea><br>
+
+<button onclick="loadText()">Load</button>
+<button onclick="toggleMode()" id="modeBtn">Recording Mode</button>
+
+<br>
+
+Alignment:
+<button onclick="setAlign('left')">Left</button>
+<button onclick="setAlign('center')">Center</button>
+<button onclick="setAlign('right')">Right</button>
+<button onclick="setAlign('justify')">Justify</button>
+
+<br>
+
+<label>Font Size</label>
+<input type="range" min="10" max="30" value="15"
+oninput="display.style.fontSize=this.value+'px'">
+
+<label>Line Gap</label>
+<input type="range" min="1" max="3" step="0.1" value="1.6"
+oninput="display.style.lineHeight=this.value">
+
+
+<br>
+
+Tool:
+<button onclick="setTool('highlight')">Highlight</button>
+<button onclick="setTool('underline')">Underline</button>
+<button onclick="setTool('clear')">Clear</button>
+
+<button onclick="undo()">Undo</button>
+<button onclick="redo()">Redo</button>
+
+<div class="palette">
+
+<button class="colorBtn" onclick="setColor('red1')" style="background:#ffb3b3"></button>
+<button class="colorBtn" onclick="setColor('red2')" style="background:#ff6666"></button>
+<button class="colorBtn" onclick="setColor('red3')" style="background:#ff1a1a"></button>
+<button class="colorBtn" onclick="setColor('red4')" style="background:#cc0000"></button>
+<button class="colorBtn" onclick="setColor('red5')" style="background:#800000"></button>
+
+<button class="colorBtn" onclick="setColor('blue1')" style="background:#b3d9ff"></button>
+<button class="colorBtn" onclick="setColor('blue2')" style="background:#66b3ff"></button>
+<button class="colorBtn" onclick="setColor('blue3')" style="background:#1a8cff"></button>
+<button class="colorBtn" onclick="setColor('blue4')" style="background:#0066cc"></button>
+<button class="colorBtn" onclick="setColor('blue5')" style="background:#003366"></button>
+
+<button class="colorBtn" onclick="setColor('green1')" style="background:#b3ffcc"></button>
+<button class="colorBtn" onclick="setColor('green2')" style="background:#66ff99"></button>
+<button class="colorBtn" onclick="setColor('green3')" style="background:#1aff66"></button>
+<button class="colorBtn" onclick="setColor('green4')" style="background:#00cc44"></button>
+<button class="colorBtn" onclick="setColor('green5')" style="background:#006622"></button>
+
+<button class="colorBtn" onclick="setColor('purple1')" style="background:#e0b3ff"></button>
+<button class="colorBtn" onclick="setColor('purple2')" style="background:#c266ff"></button>
+<button class="colorBtn" onclick="setColor('purple3')" style="background:#a31aff"></button>
+<button class="colorBtn" onclick="setColor('purple4')" style="background:#7300cc"></button>
+<button class="colorBtn" onclick="setColor('purple5')" style="background:#3d0066"></button>
+
+<button class="colorBtn" onclick="setColor('orange1')" style="background:#ffd9b3"></button>
+<button class="colorBtn" onclick="setColor('orange2')" style="background:#ffb366"></button>
+<button class="colorBtn" onclick="setColor('orange3')" style="background:#ff8c1a"></button>
+<button class="colorBtn" onclick="setColor('orange4')" style="background:#cc7000"></button>
+<button class="colorBtn" onclick="setColor('orange5')" style="background:#663800"></button>
+
+<button class="colorBtn" onclick="setColor('teal1')" style="background:#b3ffff"></button>
+<button class="colorBtn" onclick="setColor('teal2')" style="background:#66ffff"></button>
+<button class="colorBtn" onclick="setColor('teal3')" style="background:#1affff"></button>
+<button class="colorBtn" onclick="setColor('teal4')" style="background:#00cccc"></button>
+<button class="colorBtn" onclick="setColor('teal5')" style="background:#006666"></button>
+
+</div>
+
+<div class="player">
+
+<input type="file" id="audioFile" accept="audio/*">
+<br>
+<button onclick="togglePlay()" id="playBtn">Play</button>
+
+<input type="range" id="seekBar" value="0" min="0" max="100">
+
+<span id="timeLabel">0:00</span>
+<button id="rewind5">⏪ 5s</button>
+<button id="forward5">5s ⏩</button>
+
+</div>
+
+<div id="lyricsBox">
+    <div id="display"></div>
+</div>
+
+</div>
+
+<script>
+
+let mode="highlight";
+let currentColor="red";
+let toolMode = "highlight"; // highlight | underline | clear
+let swipeActive = false;
+let lastX = 0;
+let progressAccumulator = 0;
+//let pixelsPerWord = 45;
+let wordPointer = 0;
+
+let pixelsPerWord = 10;   // ⭐ sensitivity control
+let lastWord = null;
+let activePointerId = null;
+let targetScroll = 0;
+let scrolling = false;
+let scrollRAF = null;
+let allWords = [];
+let swipeStartX = 0;
+let baseWordPointer = 0;
+let currentLineIndex = 0;
+let lineJumpCost = 0;
+let lineResistance= false;
+let resWord = 0;
+let resistanceConsumedForThisLine = false;
+let lastCompletedLine = -1;
+let lineEndDistance = 0;
+let lineLocked = false;
+let undoStack = [];
+let redoStack = [];
+let audio = new Audio();
+let seekBar = document.getElementById("seekBar");
+let playBtn = document.getElementById("playBtn");
+let isAnimatingWord = false;
+let animationSpeedMultiplier = 1;
+let pendingWord = null;
+let lastMoveTime = 0;
+let swipeVelocity = 0;
+let wordQueue = [];
+let timeLabel = document.getElementById("timeLabel");
+
+document.getElementById("rewind5").addEventListener("click", () => {
+    audio.currentTime = Math.max(0, audio.currentTime - 5);
+});
+
+document.getElementById("forward5").addEventListener("click", () => {
+    audio.currentTime = Math.min(audio.duration, audio.currentTime + 5);
+});
+
+
+document.getElementById("audioFile").onchange = function(){
+
+    let file = this.files[0];
+    if(!file) return;
+
+    audio.src = URL.createObjectURL(file);
+
+    audio.onloadedmetadata = ()=>{
+        seekBar.max = audio.duration;
+    };
+
+};
+
+function togglePlay(){
+
+    if(audio.paused){
+        audio.play();
+        playBtn.innerText = "Pause";
+        startAudioLoop();
+    }
+    else{
+        audio.pause();
+        playBtn.innerText = "Play";
+    }
+
+}
+
+function startAudioLoop(){
+
+    function loop(){
+
+        if(audio.paused) return;
+
+        seekBar.value = audio.currentTime;
+
+        let m = Math.floor(audio.currentTime / 60);
+        let s = Math.floor(audio.currentTime % 60);
+
+        timeLabel.innerText = m + ":" + (s < 10 ? "0"+s : s);
+
+        requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
+}
+
+seekBar.oninput = function(){
+    audio.currentTime = this.value;
+};
+
+
+
+// Load the last song if exists
+window.addEventListener("load", () => {
+    let lastAudio = localStorage.getItem("lastAudio");
+    if (lastAudio) {
+        audio.src = lastAudio;
+        audio.onloadedmetadata = () => {
+            seekBar.max = audio.duration;
+        };
+    }
+});
+
+/*display.addEventListener("pointerdown", (e)=>{
+
+    if(mode !== "recording") return;
+
+    swipeActive = true;
+    activePointerId = e.pointerId;
+
+    display.setPointerCapture(activePointerId);
+
+    activateWordFromPoint(e);
+
+});
+
+window.addEventListener("pointermove", (e)=>{
+
+    if(!swipeActive) return;
+    if(e.pointerId !== activePointerId) return;
+
+    activateWordFromPoint(e);
+
+});
+
+window.addEventListener("pointerup", (e)=>{
+
+    if(e.pointerId !== activePointerId) return;
+
+    swipeActive = false;
+    lastWord = null;
+    activePointerId = null;
+
+});*/
+function pushUndoState(){
+
+    undoStack.push(display.innerHTML);
+
+    if(undoStack.length > 100){
+        undoStack.shift();   // limit memory
+    }
+
+    redoStack = [];   // new action kills redo history
+}
+
+function undo(){
+
+    if(undoStack.length === 0) return;
+
+    redoStack.push(display.innerHTML);
+
+    let state = undoStack.pop();
+
+    display.innerHTML = state;
+
+    /* ⭐ rebuild word list after DOM restore */
+    allWords = Array.from(display.querySelectorAll(".word"));
+}
+
+function redo(){
+
+    if(redoStack.length === 0) return;
+
+    undoStack.push(display.innerHTML);
+
+    let state = redoStack.pop();
+
+    display.innerHTML = state;
+
+    allWords = Array.from(display.querySelectorAll(".word"));
+}
+
+/*lyricsBox.addEventListener("pointerdown",(e)=>{
+    lineEndDistance = 0;
+    console.log("Unlocked");
+    if(mode !== "recording") return;
+    lineLocked = false;
+    swipeActive = true;
+
+    swipeStartX = e.clientX;
+    baseWordPointer = wordPointer;
+
+});
+
+window.addEventListener("pointermove",(e)=>{
+
+    if(!swipeActive) return;
+    if(lineLocked) return;
+
+    let distance = e.clientX - swipeStartX;
+    if(distance <= 0) return;
+
+    let wordsToAdvance = Math.floor(distance / pixelsPerWord);
+    let targetPointer = baseWordPointer + wordsToAdvance;
+
+    while(wordPointer < targetPointer){
+
+        let nextWord = allWords[wordPointer];
+        if(!nextWord) return;
+
+        let prevWord = allWords[wordPointer - 1];
+
+        if(prevWord && prevWord.dataset.last === "true" && lastCompletedLine !== Number(prevWord.dataset.line)){
+
+            lineLocked = true;
+            lastCompletedLine = Number(prevWord.dataset.line);
+
+            // ✅ DON'T reset swipeStartX here - keep the accumulated distance
+            // ✅ Only update baseWordPointer to current position
+            baseWordPointer = wordPointer;
+
+            console.log("🔴 LINE LOCKED at line", lastCompletedLine);
+            return;
+        }
+
+        triggerWordAnimation(nextWord);
+        wordPointer++;
+
+        // Reset swipe base for smooth slow swipe
+        swipeStartX = e.clientX;
+        baseWordPointer = wordPointer;
+
+        return;  // process only 1 word per frame
+    }
+});
+
+window.addEventListener("pointerup",()=>{
+    swipeActive = false;
+    lineLocked = false;
+baseWordPointer = wordPointer;
+});
+*/
+function autoCompleteLineEnd(){
+
+    let currentWord = allWords[wordPointer];
+    if(!currentWord) return;
+
+    let currentLine = Number(currentWord.dataset.line);
+
+    let remaining = [];
+
+    // collect remaining words in same line
+    for(let i = wordPointer; i < allWords.length; i++){
+
+        let w = allWords[i];
+
+        if(Number(w.dataset.line) !== currentLine) break;
+
+        remaining.push(w);
+
+        if(w.dataset.last === "true") break;
+    }
+
+    // ⭐ If only 1 or 2 words remaining → auto highlight
+    if(remaining.length > 0 && remaining.length <= 2){
+
+        console.log("✨ Auto completing line end");
+
+        remaining.forEach(w=>{
+            triggerWordAnimation(w);
+            wordPointer++;
+        });
+
+        lastCompletedLine = currentLine;
+    }
+}
+
+// Swipe starts on pointer down
+lyricsBox.addEventListener("pointerdown", (e) => {
+    if (mode !== "recording") return;
+    autoCompleteLineEnd();
+    swipeActive = true;          // ✅ Enable highlighting
+    swipeStartX = e.clientX;
+    baseWordPointer = wordPointer;
+
+    console.log("Swipe started, swipeActive =", swipeActive);
+});
+
+window.addEventListener("pointermove", (e) => {
+    if (!swipeActive) return;
+
+    let now = performance.now();
+    let dt = now - lastMoveTime;
+
+    let dx = e.clientX - swipeStartX;
+
+    if (dt > 0){
+        swipeVelocity = Math.abs(dx / dt);   // px per ms
+    }
+
+    lastMoveTime = now;
+
+    let distance = dx;
+    if (distance <= 0) return;
+
+    let wordsToAdvance = Math.floor(distance / pixelsPerWord);
+    let targetPointer = baseWordPointer + wordsToAdvance;
+
+    while (wordPointer < targetPointer) {
+        let nextWord = allWords[wordPointer];
+        if (!nextWord) return;
+
+        triggerWordAnimation(nextWord);
+        wordPointer++;
+
+        swipeStartX = e.clientX;
+        baseWordPointer = wordPointer;
+
+        if (nextWord.dataset.last === "true") {
+            swipeActive = false;
+            lastCompletedLine = Number(nextWord.dataset.line);
+        }
+
+        return;
+    }
+});
+
+// Re-enable swipe when finger lifts
+window.addEventListener("pointerup", () => {
+    if (mode !== "recording") return;
+
+    swipeActive = true;           // ✅ Ready for next line
+    console.log("Swipe ended, swipeActive =", swipeActive);
+});
+
+function activateNextWord(){
+
+    console.log("progressing", wordPointer, allWords.length);
+
+    if(wordPointer >= allWords.length) return;
+
+    let word = allWords[wordPointer];
+
+    triggerWordAnimation(word);
+
+    autoScrollToWord(word);
+
+    wordPointer++;
+
+}
+
+function autoScrollToWord(word){
+
+    let box = lyricsBox;
+
+    let wordRect = word.getBoundingClientRect();
+    let boxRect = box.getBoundingClientRect();
+
+    let wordCenter = wordRect.top + wordRect.height/2;
+    let boxCenter = boxRect.top + box.clientHeight/2;
+
+    let diff = wordCenter - boxCenter;
+
+    targetScroll = box.scrollTop + diff;
+
+    startSmoothScroll();
+
+}
+
+function startSmoothScroll(){
+
+    if(mode !== "recording") return;
+
+    if(scrolling) return;
+
+    scrolling = true;
+
+    function loop(){
+
+        if(mode !== "recording"){
+            stopAutoScroll();
+            return;
+        }
+
+        let box = lyricsBox;
+
+        let current = box.scrollTop;
+        let diff = targetScroll - current;
+
+        box.scrollTop = current + diff * 0.18;
+
+        if(Math.abs(diff) > 0.5){
+            scrollRAF = requestAnimationFrame(loop);
+        }else{
+            scrolling = false;
+        }
+
+    }
+
+    scrollRAF = requestAnimationFrame(loop);
+
+}
+
+function stopAutoScroll(){
+
+    scrolling = false;
+
+    if(scrollRAF){
+        cancelAnimationFrame(scrollRAF);
+        scrollRAF = null;
+    }
+
+}
+
+function activateWordFromPoint(e){
+
+    let el = document.elementFromPoint(e.clientX, e.clientY);
+
+    if(!el) return;
+
+    let word = el.closest(".word");
+
+    if(!word) return;
+
+    if(word === lastWord) return;
+
+    lastWord = word;
+
+    triggerWordAnimation(word);
+
+}
+
+function triggerWordAnimation(word){
+
+    if(word.classList.contains("activeWord")) return;
+
+    // ⭐ If animation running → queue instead of ignoring
+    if(isAnimatingWord){
+        wordQueue.push(word);
+        return;
+    }
+
+    startWordAnimation(word);
+}
+
+function fillWordInstant(word){
+
+    word.classList.add("activeWord");
+    word.style.opacity = 1;
+
+    let highlights = word.querySelectorAll(".highlight");
+
+    highlights.forEach(h=>{
+        h.style.transition = "none";
+        h.style.backgroundSize = "100% 100%";
+    });
+
+    let underlines = word.querySelectorAll("span[style*='underline']");
+    underlines.forEach(u=>{
+        u.style.opacity = 1;
+    });
+}
+
+function startWordAnimation(word){
+
+    isAnimatingWord = true;
+    animationSpeedMultiplier = 1;
+
+    autoScrollToWord(word);
+
+    word.classList.add("activeWord");
+    word.style.opacity = 1;
+
+    let highlights = Array.from(word.querySelectorAll(".highlight"));
+    let underlines = Array.from(word.querySelectorAll("span[style*='underline']"));
+
+    function animateHighlight(i){
+
+        if(i >= highlights.length){
+
+            underlines.forEach(u=>{
+                u.style.opacity = 1;
+            });
+
+            isAnimatingWord = false;
+
+            /* ⭐ If user already swiped next word → start instantly */
+// ⭐ Process queued words
+if(wordQueue.length > 0){
+
+    // 🚀 If too many → skip animation (instant fill all)
+    if(wordQueue.length > 3){
+
+        wordQueue.forEach(w=>{
+            fillWordInstant(w);
+        });
+
+        wordQueue = [];
+        isAnimatingWord = false;
+        return;
+    }
+
+    let next = wordQueue.shift();
+    startWordAnimation(next);
+}
+
+            return;
+        }
+
+        let h = highlights[i];
+
+let baseDuration = 150;
+
+// smoother scaling
+let duration = baseDuration / (1 + swipeVelocity * 3);
+
+// clamp nicely
+if(duration < 80) duration = 80;     // keep visible animation
+if(swipeVelocity > 1.5) duration = 0; // ultra fast → instant
+if(duration === 0){
+
+    h.style.transition = "none";
+    h.style.backgroundSize = "100% 100%";
+
+    // immediately go to next highlight
+    animateHighlight(i + 1);
+    return;
+}
+
+        h.style.transition = `background-size ${duration}ms linear`;
+        h.style.backgroundSize = "100% 100%";
+
+        h.addEventListener("transitionend", function handler(){
+
+            h.removeEventListener("transitionend", handler);
+
+            animateHighlight(i + 1);
+
+        });
+
+    }
+
+    animateHighlight(0);
+}
+
+function setColor(c){
+    currentColor=c;
+}
+
+function setTool(t){
+    toolMode = t;
+}
+
+function setAlign(type){
+    display.style.textAlign=type;
+}
+
+/*function loadText(){
+
+    let text=input.value;
+    if(!text.trim()) return;
+
+    display.innerHTML="";
+
+    let lines=text.split("\n");
+
+    lines.forEach(lineText=>{
+
+        let lineDiv=document.createElement("div");
+        lineDiv.className="line";
+
+        lineText.split(" ").forEach(w=>{
+
+            if(w.trim()){
+                let span=document.createElement("span");
+                span.className="word";
+                span.innerHTML=w+" ";
+                lineDiv.appendChild(span);
+            }
+
+        });
+
+        display.appendChild(lineDiv);
+
+    });
+allWords = Array.from(display.querySelectorAll(".word"));
+}*/
+
+function loadText(){
+    pushUndoState();
+    let text = input.value;
+    if(!text.trim()) return;
+
+    display.innerHTML = "";
+
+    let lines = text.split("\n");
+
+    lines.forEach((lineText, lineIndex)=>{
+
+        let lineDiv = document.createElement("div");
+        lineDiv.className = "line";
+
+        let words = lineText.split(/\s+/).filter(w => w.length);
+
+        words.forEach((w, i)=>{
+
+            let span = document.createElement("span");
+            span.className = "word";
+            span.textContent = w;   // ⭐ safer than innerHTML
+
+            span.dataset.line = lineIndex;
+
+            if(i === words.length - 1){
+                span.dataset.last = "true";
+            }
+
+            lineDiv.appendChild(span);
+
+            /* ⭐ REAL SPACE NODE */
+            if(i !== words.length - 1){
+                lineDiv.appendChild(document.createTextNode(" "));
+            }
+
+        });
+
+        display.appendChild(lineDiv);
+
+    });
+
+    allWords = Array.from(display.querySelectorAll(".word"));
+
+    console.log(
+        "WORDS:",
+        allWords.map(w => ({
+            text: w.textContent,
+            last: w.dataset.last,
+            line: w.dataset.line
+        }))
+    );
+
+}
+
+function clearSelectionFormatting(range){
+
+    pushUndoState();
+
+    let word = range.startContainer.parentElement.closest(".word");
+    if(!word) return;
+
+    /* ⭐ get all formatting spans inside this word */
+    let formats = word.querySelectorAll(".highlight, span[style*='underline']");
+
+    formats.forEach(f=>{
+
+        /* ⭐ check if selection overlaps this formatting span */
+        let spanRange = document.createRange();
+        spanRange.selectNodeContents(f);
+
+        if(
+            range.compareBoundaryPoints(Range.END_TO_START, spanRange) < 0 &&
+            range.compareBoundaryPoints(Range.START_TO_END, spanRange) > 0
+        ){
+
+            let parent = f.parentNode;
+
+            while(f.firstChild){
+                parent.insertBefore(f.firstChild, f);
+            }
+
+            parent.removeChild(f);
+        }
+
+    });
+
+    display.normalize();
+
+    allWords = Array.from(display.querySelectorAll(".word"));
+}
+
+/* highlight */
+
+document.addEventListener("pointerup", function(){
+
+    if(mode !== "highlight") return;
+    
+    let sel = window.getSelection();
+    if(!sel.rangeCount) return;
+
+    let range = sel.getRangeAt(0);
+
+    if(range.toString().trim().length === 0) return;
+
+    let startWord = range.startContainer.parentElement.closest(".word");
+    let endWord = range.endContainer.parentElement.closest(".word");
+
+    if(!startWord || startWord !== endWord) return;
+
+    if(toolMode === "highlight"){
+        pushUndoState();
+        let content = range.extractContents();
+
+        let span = document.createElement("span");
+        span.className = "highlight";
+        span.dataset.color = currentColor;
+
+        span.appendChild(content);
+        range.insertNode(span);
+        saveProject()
+    }
+
+    else if(toolMode === "underline"){
+        pushUndoState();
+        let content = range.extractContents();
+
+        let span = document.createElement("span");
+        span.style.textDecoration = "underline";
+
+        span.appendChild(content);
+        range.insertNode(span);
+        saveProject()
+
+    }
+
+    else if(toolMode === "clear"){
+        
+        clearSelectionFormatting(range);
+
+    }
+
+    sel.removeAllRanges();
+
+});
+
+
+function toggleMode(){
+
+    if(mode === "highlight"){
+
+        /* ENTER RECORDING MODE */
+        currentLineIndex = 0;
+        allWords = Array.from(display.querySelectorAll(".word"));
+wordPointer = 0;
+progressAccumulator = 0;
+        
+        mode = "recording";
+        display.classList.add("recording");
+        modeBtn.innerText = "Highlight Mode";
+
+        lyricsBox.style.touchAction = "none";
+
+        /* hide all highlights initially */
+        document.querySelectorAll(".highlight").forEach(h=>{
+            h.style.backgroundSize = "0% 100%";
+        });
+        
+        
+
+        document.querySelectorAll(".word").forEach(word=>{
+
+            word.onclick = function(e){
+
+                e.stopPropagation();
+
+                if(word.classList.contains("activeWord")) return;
+
+                word.classList.add("activeWord");
+                word.style.opacity = 1;
+
+                let highlights = Array.from(word.querySelectorAll(".highlight"));
+
+                let delay = 0;
+
+                highlights.forEach(h=>{
+
+                    setTimeout(()=>{
+
+                        h.style.transition = "background-size .12s linear";
+                        h.style.backgroundSize = "100% 100%";
+
+                    }, delay);
+
+                    delay += 40;   // sequential highlight timing
+
+                });
+
+            };
+
+        });
+
+    }
+    else{
+
+        /* ENTER HIGHLIGHT MODE */
+        stopAutoScroll();
+targetScroll = lyricsBox.scrollTop;
+        mode = "highlight";
+        display.classList.remove("recording");
+        modeBtn.innerText = "Recording Mode";
+
+        lyricsBox.style.touchAction = "auto";
+
+        stopAutoScroll();                 // ⭐ VERY IMPORTANT
+        swipeActive = false;
+        activePointerId = null;
+        currentWordIndex = -1;
+
+        /* restore highlights */
+        document.querySelectorAll(".highlight").forEach(h=>{
+            h.style.backgroundSize = "100% 100%";
+        });
+
+        document.querySelectorAll(".word").forEach(word=>{
+            word.onclick = null;
+            word.classList.remove("activeWord");
+            word.style.opacity = "";
+        });
+
+    }
+
+}
+
+/*lyricsBox.addEventListener("pointerdown",(e)=>{
+
+    if(mode !== "recording") return;
+
+    swipeActive = true;
+    lastX = e.clientX;
+    progressAccumulator = 0;
+
+    lyricsBox.setPointerCapture(e.pointerId);
+
+});
+
+window.addEventListener("pointermove",(e)=>{
+    
+    if(!swipeActive) return;
+
+    let dx = e.clientX - lastX;
+
+    lastX = e.clientX;
+    console.log("dx", dx);
+    if(dx < 2) return;
+
+    progressAccumulator += dx;
+
+    while(progressAccumulator > pixelsPerWord){
+
+        progressAccumulator -= pixelsPerWord;
+
+        activateNextWord();
+
+    }
+
+});
+
+window.addEventListener("pointerup",(e)=>{
+
+    swipeActive = false;
+
+    try{
+        lyricsBox.releasePointerCapture(e.pointerId);
+    }catch{}
+
+});
+
+/*function activateNextWord(){
+
+    console.log("progressing", wordPointer, allWords.length);
+
+    if(wordPointer >= allWords.length) return;
+
+    let word = allWords[wordPointer];
+
+    triggerWordAnimation(word);
+
+    autoScrollToWord(word);
+
+    wordPointer++;
+
+}
+
+function activateNextWord(){
+
+    console.log("progressing", wordPointer, allWords.length);
+
+    if(wordPointer >= allWords.length) return;
+
+    let word = allWords[wordPointer];
+
+    triggerWordAnimation(word);
+
+    autoScrollToWord(word);
+
+    wordPointer++;
+
+}
+
+function autoScrollToWord(word){
+
+    let box = lyricsBox;
+
+    let wordRect = word.getBoundingClientRect();
+    let boxRect = box.getBoundingClientRect();
+
+    let wordCenter = wordRect.top + wordRect.height/2;
+    let boxCenter = boxRect.top + box.clientHeight/2;
+
+    let diff = wordCenter - boxCenter;
+
+    targetScroll = box.scrollTop + diff;
+
+    startSmoothScroll();
+
+}
+
+function startSmoothScroll(){
+
+    if(mode !== "recording") return;
+
+    if(scrolling) return;
+
+    scrolling = true;
+
+    function loop(){
+
+        if(mode !== "recording"){
+            stopAutoScroll();
+            return;
+        }
+
+        let box = lyricsBox;
+
+        let current = box.scrollTop;
+        let diff = targetScroll - current;
+
+        box.scrollTop = current + diff * 0.18;
+
+        if(Math.abs(diff) > 0.5){
+            scrollRAF = requestAnimationFrame(loop);
+        }else{
+            scrolling = false;
+        }
+
+    }
+
+    scrollRAF = requestAnimationFrame(loop);
+
+}
+
+function stopAutoScroll(){
+
+    scrolling = false;
+
+    if(scrollRAF){
+        cancelAnimationFrame(scrollRAF);
+        scrollRAF = null;
+    }
+
+}
+
+function activateWordFromPoint(e){
+
+    let el = document.elementFromPoint(e.clientX, e.clientY);
+
+    if(!el) return;
+
+    let word = el.closest(".word");
+
+    if(!word) return;
+
+    if(word === lastWord) return;
+
+    lastWord = word;
+
+    triggerWordAnimation(word);
+
+}
+
+function triggerWordAnimation(word){
+
+autoScrollToWord(word);
+
+    if(word.classList.contains("activeWord")) return;
+
+    word.classList.add("activeWord");
+    word.style.opacity = 1;
+
+    let highlights = Array.from(word.querySelectorAll(".highlight"));
+
+    let delay = 0;
+
+    highlights.forEach(h=>{
+
+        setTimeout(()=>{
+
+            h.style.transition = "background-size .1s linear";
+            h.style.backgroundSize = "100% 100%";
+
+        }, delay);
+
+        delay += 10;
+
+    });
+
+}
+
+function setColor(c){
+    currentColor=c;
+}
+
+function setTool(t){
+    toolMode = t;
+}
+
+function setAlign(type){
+    display.style.textAlign=type;
+}
+
+/*function loadText(){
+
+    let text=input.value;
+    if(!text.trim()) return;
+
+    display.innerHTML="";
+
+    let lines=text.split("\n");
+
+    lines.forEach(lineText=>{
+
+        let lineDiv=document.createElement("div");
+        lineDiv.className="line";
+
+        lineText.split(" ").forEach(w=>{
+
+            if(w.trim()){
+                let span=document.createElement("span");
+                span.className="word";
+                span.innerHTML=w+" ";
+                lineDiv.appendChild(span);
+            }
+
+        });
+
+        display.appendChild(lineDiv);
+
+    });
+allWords = Array.from(display.querySelectorAll(".word"));
+}*/
+
+let currentProject = null;
+
+function getProjects(){
+    return JSON.parse(localStorage.getItem("lyricsProjects") || "{}");
+}
+
+function setProjects(data){
+    localStorage.setItem("lyricsProjects", JSON.stringify(data));
+}
+
+function renderProjects(){
+
+    let data = getProjects();
+
+    projectsList.innerHTML = "";
+
+    Object.keys(data).forEach(name=>{
+
+        let div = document.createElement("div");
+
+        div.innerHTML = `
+            <button onclick="openProject('${name}')">${name}</button>
+            <button onclick="deleteProject('${name}')">❌</button>
+        `;
+
+        projectsList.appendChild(div);
+
+    });
+
+}
+
+function createProject(){
+
+    let name = projectName.value.trim();
+    if(!name) return;
+
+    let data = getProjects();
+
+    data[name] = {
+        text:"",
+        html:"",
+        align:"left",
+        fontSize:34,
+        lineGap:1.6
+    };
+
+    setProjects(data);
+    renderProjects();
+}
+
+function deleteProject(name){
+
+    let data = getProjects();
+    delete data[name];
+    setProjects(data);
+    renderProjects();
+
+    if(currentProject === name){
+        currentProject = null;
+        display.innerHTML="";
+        input.value="";
+    }
+
+}
+
+function openProject(name){
+
+    let data = getProjects();
+    let p = data[name];
+
+    currentProject = name;
+
+    input.value = p.text;
+    display.innerHTML = p.html;
+
+    display.style.textAlign = p.align;
+    display.style.fontSize = p.fontSize + "px";
+    display.style.lineHeight = p.lineGap;
+
+    goEditor();
+}
+
+function saveProject(){
+// Save the song in localStorage as Base64
+document.getElementById("audioFile").onchange = function() {
+    let file = this.files[0];
+    if (!file) return;
+
+    let reader = new FileReader();
+    reader.onload = function(e) {
+        let dataUrl = e.target.result;
+        audio.src = dataUrl;
+
+        // Save the song in localStorage
+        localStorage.setItem("lastAudio", dataUrl);
+
+        audio.onloadedmetadata = () => {
+            seekBar.max = audio.duration;
+        };
+    };
+    reader.readAsDataURL(file);
+};
+    if(!currentProject){
+        alert("Open or create project first");
+        return;
+    }
+
+    let data = getProjects();
+
+    data[currentProject] = {
+        text: input.value,
+        html: display.innerHTML,
+        align: display.style.textAlign || "left",
+        fontSize: parseFloat(display.style.fontSize) || 34,
+        lineGap: parseFloat(display.style.lineHeight) || 1.6
+    };
+
+    setProjects(data);
+
+
+}
+
+function goEditor(){
+    projectsScreen.style.display="none";
+    editorScreen.style.display="block";
+}
+
+function goHome(){
+    editorScreen.style.display="none";
+    projectsScreen.style.display="block";
+}
+
+function underlineSelection(){
+
+    if(mode !== "highlight") return;
+
+    let sel = window.getSelection();
+    if(!sel.rangeCount) return;
+
+    let range = sel.getRangeAt(0);
+
+    if(range.toString().trim().length === 0) return;
+
+    let startWord = range.startContainer.parentElement.closest(".word");
+    let endWord = range.endContainer.parentElement.closest(".word");
+
+    if(startWord !== endWord) return;
+
+    let content = range.extractContents();
+
+    let span = document.createElement("span");
+    span.style.textDecoration = "underline";
+
+    span.appendChild(content);
+    range.insertNode(span);
+
+    sel.removeAllRanges();
+}
+
+
+
+renderProjects();
+
+</script>
+
+</body>
+</html>
