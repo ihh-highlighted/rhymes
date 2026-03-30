@@ -219,12 +219,18 @@ Alignment:
 <br>
 
 <label>Font Size</label>
-<input type="range" min="10" max="30" value="15"
+<input type="range" min="10" max="50" value="15"
 oninput="display.style.fontSize=this.value+'px'">
 
 <label>Line Gap</label>
 <input type="range" min="1" max="3" step="0.1" value="1.6"
 oninput="display.style.lineHeight=this.value">
+
+<label>Swipe sensitivity</label>
+<input type="range" id="sensitivity" min="5" max="50" step="0.1" value="15">
+
+<label>highlight speed</label>
+<input type="range" id="highlightSpeed" min="50" max="400" step="0.1" value="150">
 
 
 <br>
@@ -337,6 +343,21 @@ let lastMoveTime = 0;
 let swipeVelocity = 0;
 let wordQueue = [];
 let timeLabel = document.getElementById("timeLabel");
+let baseDuration = 150;
+
+
+
+const sensiSlider = document.getElementById("sensitivity");
+
+sensiSlider.addEventListener("input", () => {
+  pixelsPerWord = Number(sensiSlider.value);
+});
+
+const speedSlider = document.getElementById("highlightSpeed");
+
+speedSlider.addEventListener("input", () => {
+  baseDuration = Number(speedSlider.value);
+});
 
 document.getElementById("rewind5").addEventListener("click", () => {
     audio.currentTime = Math.max(0, audio.currentTime - 5);
@@ -808,7 +829,7 @@ if(wordQueue.length > 0){
 
         let h = highlights[i];
 
-let baseDuration = 150;
+
 
 // smoother scaling
 let duration = baseDuration / (1 + swipeVelocity * 3);
