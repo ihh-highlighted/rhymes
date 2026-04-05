@@ -343,8 +343,30 @@ let lastMoveTime = 0;
 let swipeVelocity = 0;
 let wordQueue = [];
 let timeLabel = document.getElementById("timeLabel");
-let baseDuration = 150;
+let baseDuration = 65;
+let tapCount = 0;
+let lastTapTime = 0;
 
+window.addEventListener("pointerdown", (e) => {
+
+    let now = Date.now();
+
+    if(now - lastTapTime < 300){
+        tapCount++;
+    } else {
+        tapCount = 1;
+    }
+
+    lastTapTime = now;
+
+    if(tapCount === 3){
+
+        tapCount = 0;
+
+        toggleMode();
+    }
+
+});
 
 
 const sensiSlider = document.getElementById("sensitivity");
