@@ -729,7 +729,7 @@ function startSmoothScroll(){
         let current = box.scrollTop;
         let diff = targetScroll - current;
 
-        box.scrollTop = current + diff * 0.18;
+        box.scrollTop = current + diff * 0.60;
 
         if(Math.abs(diff) > 0.5){
             scrollRAF = requestAnimationFrame(loop);
