@@ -210,6 +210,8 @@ label{
 
 <br>
 
+    <button onclick="showRhymeStats()">Rhyme %</button>
+
 Alignment:
 <button onclick="setAlign('left')">Left</button>
 <button onclick="setAlign('center')">Center</button>
@@ -417,6 +419,40 @@ function togglePlay(){
 
 }
 
+function showRhymeStats(){
+
+    let totalSyllables = 0;
+    let highlightedSyllables = 0;
+
+    // helper inside (still counts as ONE function)
+    function countSyllables(text){
+        let matches = text.toLowerCase().match(/[aeiou]/g);
+        return matches ? matches.length : 0;
+    }
+
+    // total syllables
+    allWords.forEach(word => {
+        totalSyllables += countSyllables(word.textContent);
+    });
+
+    // highlighted syllables (from highlight spans)
+    let highlights = document.querySelectorAll(".highlight");
+
+    highlights.forEach(h => {
+        highlightedSyllables += countSyllables(h.textContent);
+    });
+
+    let percent = totalSyllables === 0 
+        ? 0 
+        : (highlightedSyllables / totalSyllables) * 100;
+
+    alert(
+        "Rhyme Percentage: " + percent.toFixed(1) + "%\n\n" +
+        "Total Syllables: " + totalSyllables + "\n" +
+        "Rhymed Syllables: " + highlightedSyllables
+    );
+}
+        
 function startAudioLoop(){
 
     function loop(){
