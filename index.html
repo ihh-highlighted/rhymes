@@ -421,41 +421,45 @@ function togglePlay(){
 
 function showRhymeStats(){
 
-    let totalSyllables = 0;
-    let highlightedSyllables = 0;
+    let totalWords = 0;
+    let rhymedWords = 0;
 
-    function countSyllables(text){
-        let matches = text.toLowerCase().match(/[aeiou]/g);
-        return matches ? matches.length : 0;
-    }
-
-    // ⭐ FIX: rebuild words (VERY IMPORTANT)
+    // get all words (works for old + new projects)
     let words = Array.from(document.querySelectorAll(".word"));
 
-    // total syllables
+    totalWords = words.length;
+
     words.forEach(word => {
-        totalSyllables += countSyllables(word.textContent);
-    });
 
-    // highlighted syllables
-    let highlights = document.querySelectorAll(".highlight");
+        let highlights = word.querySelectorAll(".highlight");
 
-    highlights.forEach(h => {
-        let style = window.getComputedStyle(h);
+        let isRhymed = false;
 
-        if(style.backgroundSize !== "0% 100%"){
-            highlightedSyllables += countSyllables(h.textContent);
+        highlights.forEach(h => {
+
+            let style = window.getComputedStyle(h);
+
+            // if ANY highlight is visible → word counts
+            if(style.backgroundSize !== "0% 100%"){
+                isRhymed = true;
+            }
+
+        });
+
+        if(isRhymed){
+            rhymedWords++;
         }
+
     });
 
-    let percent = totalSyllables === 0 
+    let percent = totalWords === 0 
         ? 0 
-        : (highlightedSyllables / totalSyllables) * 100;
+        : (rhymedWords / totalWords) * 100;
 
     alert(
         "Rhyme Percentage: " + percent.toFixed(1) + "%\n\n" +
-        "Total Syllables: " + totalSyllables + "\n" +
-        "Rhymed Syllables: " + highlightedSyllables
+        "Total Words: " + totalWords + "\n" +
+        "Rhymed Words: " + rhymedWords
     );
 }
         
