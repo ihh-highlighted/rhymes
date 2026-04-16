@@ -211,6 +211,7 @@ label{
 <br>
 
     <button onclick="showRhymeStats()">Rhyme %</button>
+    <button onclick="showSyllableStats()">Syllable Rhyme %</button>
 
 Alignment:
 <button onclick="setAlign('left')">Left</button>
@@ -348,6 +349,48 @@ let timeLabel = document.getElementById("timeLabel");
 let baseDuration = 65;
 let tapCount = 0;
 let lastTapTime = 0;
+
+function showSyllableStats(){
+
+    let totalSyllables = 0;
+    let rhymedSyllables = 0;
+
+    function countSyllables(text){
+        let matches = text.toLowerCase().match(/[aeiou]/g);
+        return matches ? matches.length : 0;
+    }
+
+    let words = Array.from(document.querySelectorAll(".word"));
+
+    // ⭐ TOTAL syllables (from full words)
+    words.forEach(word => {
+        totalSyllables += countSyllables(word.textContent);
+    });
+
+    // ⭐ RHYMED syllables (from highlights only)
+    let highlights = document.querySelectorAll(".highlight");
+
+    highlights.forEach(h => {
+
+        let style = window.getComputedStyle(h);
+
+        if(style.backgroundSize !== "0% 100%"){
+            rhymedSyllables += countSyllables(h.textContent);
+        }
+
+    });
+
+    let percent = totalSyllables === 0 
+        ? 0 
+        : (rhymedSyllables / totalSyllables) * 100;
+
+    alert(
+        "SYLLABLE BASED\n\n" +
+        "Rhyme %: " + percent.toFixed(1) + "%\n\n" +
+        "Total Syllables: " + totalSyllables + "\n" +
+        "Rhymed Syllables: " + rhymedSyllables
+    );
+}
 
 window.addEventListener("pointerdown", (e) => {
 
