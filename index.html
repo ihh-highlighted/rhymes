@@ -314,6 +314,8 @@ Tool:
 
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+    
 <script>
 
 let mode="highlight";
@@ -1570,24 +1572,7 @@ function openProject(name){
 
 function saveProject(){
 // Save the song in localStorage as Base64
-document.getElementById("audioFile").onchange = function() {
-    let file = this.files[0];
-    if (!file) return;
 
-    let reader = new FileReader();
-    reader.onload = function(e) {
-        let dataUrl = e.target.result;
-        audio.src = dataUrl;
-
-        // Save the song in localStorage
-        localStorage.setItem("lastAudio", dataUrl);
-
-        audio.onloadedmetadata = () => {
-            seekBar.max = audio.duration;
-        };
-    };
-    reader.readAsDataURL(file);
-};
     if(!currentProject){
         alert("Open or create project first");
         return;
@@ -1662,39 +1647,61 @@ function importProject(){
 
 function copyProject(){
 
+    if(!currentProject){
+        alert("No project open");
+        return;
+    }
+
     let data = getProjects()[currentProject];
 
-    let json = JSON.stringify(data);
+    let exportData = {
+        text: data.text,
+        html: data.html,
+        align: data.align,
+        fontSize: data.fontSize,
+        lineGap: data.lineGap
+    };
 
-    navigator.clipboard.writeText(json);
+    let json = JSON.stringify(exportData);
 
-    alert("Copied project data!");
+    // 🔥 REAL compression
+    let compressed = LZString.compressToBase64(json);
+
+    navigator.clipboard.writeText(compressed)
+        .then(() => alert("Copied (compressed) 🚀"))
+        .catch(() => alert("Copy failed"));
 }
 
 function pasteProject(){
 
-    let json = prompt("Paste project data:");
-
-    if(!json) return;
+    let inputData = prompt("Paste project data:");
+    if(!inputData) return;
 
     try{
 
+        // 🔥 Decompress
+        let json = LZString.decompressFromBase64(inputData);
+
+        if(!json){
+            throw "Decompression failed";
+        }
+
         let data = JSON.parse(json);
 
-        let name = prompt("Enter project name:");
+        input.value = data.text;
+        display.innerHTML = data.html;
 
-        if(!name) return;
+        display.style.textAlign = data.align || "left";
+        display.style.fontSize = (data.fontSize || 34) + "px";
+        display.style.lineHeight = data.lineGap || 1.6;
 
-        let allProjects = getProjects();
+        allWords = Array.from(display.querySelectorAll(".word"));
 
-        allProjects[name] = data;
+        alert("Project loaded! ✅");
 
-        setProjects(allProjects);
-
-        alert("Imported!");
-
-    }catch{
-        alert("Invalid data!");
+    } catch(e){
+        alert("Invalid or corrupted data ❌");
+        console.error(e);
     }
 }
 
