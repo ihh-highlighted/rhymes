@@ -188,6 +188,9 @@ label{
 
 <h2>Projects</h2>
 
+<input type="file" id="importFile" accept=".json,.lyricsproj">
+<button onclick="importProject()">Import Project</button>
+
 <input id="projectName" placeholder="Project name">
 
 <button onclick="createProject()">Create</button>
@@ -201,7 +204,10 @@ label{
 <button onclick="goHome()">⬅ Back</button>
 <button onclick="saveProject()">Save</button>
 
+<input type="file" id="importFile" accept=".json,.lyricsproj">
+<button onclick="importProject()">Import Project</button>
 <br><br>
+<button onclick="exportProject()">Export File</button>
 
 <textarea id="input"></textarea><br>
 
@@ -1598,6 +1604,58 @@ document.getElementById("audioFile").onchange = function() {
     setProjects(data);
 
 
+}
+
+function exportProject(){
+
+    if(!currentProject){
+        alert("No project selected");
+        return;
+    }
+
+    let data = getProjects()[currentProject];
+
+    let json = JSON.stringify(data);
+
+    let blob = new Blob([json], { type: "application/json" });
+
+    let a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = currentProject + ".lyricsproj";
+
+    a.click();
+}
+
+function importProject(){
+
+    let fileInput = document.getElementById("importFile");
+    let file = fileInput.files[0];
+
+    if(!file){
+        alert("Select a file first");
+        return;
+    }
+
+    let reader = new FileReader();
+
+    reader.onload = function(e){
+
+        let data = JSON.parse(e.target.result);
+
+        let name = prompt("Enter project name:");
+
+        if(!name) return;
+
+        let allProjects = getProjects();
+
+        allProjects[name] = data;
+
+        setProjects(allProjects);
+
+        alert("Imported!");
+    };
+
+    reader.readAsText(file);
 }
 
 function goEditor(){
