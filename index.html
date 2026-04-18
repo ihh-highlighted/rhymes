@@ -190,6 +190,7 @@ label{
 
 <input type="file" id="importFile" accept=".json,.lyricsproj">
 <button onclick="importProject()">Import Project</button>
+<button onclick="pasteProject()">Paste Import</button>
 
 <input id="projectName" placeholder="Project name">
 
@@ -208,6 +209,7 @@ label{
 <button onclick="importProject()">Import Project</button>
 <br><br>
 <button onclick="exportProject()">Export File</button>
+<button onclick="copyProject()">Copy Data</button>
 
 <textarea id="input"></textarea><br>
 
@@ -1656,6 +1658,44 @@ function importProject(){
     };
 
     reader.readAsText(file);
+}
+
+function copyProject(){
+
+    let data = getProjects()[currentProject];
+
+    let json = JSON.stringify(data);
+
+    navigator.clipboard.writeText(json);
+
+    alert("Copied project data!");
+}
+
+function pasteProject(){
+
+    let json = prompt("Paste project data:");
+
+    if(!json) return;
+
+    try{
+
+        let data = JSON.parse(json);
+
+        let name = prompt("Enter project name:");
+
+        if(!name) return;
+
+        let allProjects = getProjects();
+
+        allProjects[name] = data;
+
+        setProjects(allProjects);
+
+        alert("Imported!");
+
+    }catch{
+        alert("Invalid data!");
+    }
 }
 
 function goEditor(){
