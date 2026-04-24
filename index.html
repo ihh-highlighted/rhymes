@@ -179,6 +179,48 @@ label{
     flex:1;
 }
 
+#toastContainer{
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.toast{
+    background: #222;
+    color: white;
+    padding: 10px 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.25s ease;
+    pointer-events: auto;
+}
+
+.toast.show{
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast button{
+    background: none;
+    border: none;
+    color: #4da6ff;
+    font-weight: bold;
+    cursor: pointer;
+}
+
 </style>
 </head>
 
@@ -314,6 +356,8 @@ Tool:
 
 </div>
 
+<div id="toastContainer"></div>
+
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
     
 <script>
@@ -370,23 +414,48 @@ function showSyllableStats(){
         return matches ? matches.length : 0;
     }
 
-    let words = Array.from(document.querySelectorAll(".word"));
+    let selection = window.getSelection();
+    let selectedWords = [];
 
-    // ⭐ TOTAL syllables (from full words)
+    // ✅ CASE 1: TEXT SELECTED
+    if(selection && selection.rangeCount > 0 && !selection.isCollapsed){
+
+        let range = selection.getRangeAt(0);
+
+        let allWords = Array.from(document.querySelectorAll(".word"));
+
+        allWords.forEach(word => {
+            if(range.intersectsNode(word)){
+                selectedWords.push(word);
+            }
+        });
+
+    }
+
+    // ✅ fallback → full song
+    let words = selectedWords.length > 0
+        ? selectedWords
+        : Array.from(document.querySelectorAll(".word"));
+
+    // ⭐ TOTAL syllables
     words.forEach(word => {
         totalSyllables += countSyllables(word.textContent);
     });
 
-    // ⭐ RHYMED syllables (from highlights only)
-    let highlights = document.querySelectorAll(".highlight");
+    // ⭐ RHYMED syllables (only inside selected words)
+    words.forEach(word => {
 
-    highlights.forEach(h => {
+        let highlights = word.querySelectorAll(".highlight");
 
-        let style = window.getComputedStyle(h);
+        highlights.forEach(h => {
 
-        if(style.backgroundSize !== "0% 100%"){
-            rhymedSyllables += countSyllables(h.textContent);
-        }
+            let style = window.getComputedStyle(h);
+
+            if(style.backgroundSize !== "0% 100%"){
+                rhymedSyllables += countSyllables(h.textContent);
+            }
+
+        });
 
     });
 
@@ -395,6 +464,7 @@ function showSyllableStats(){
         : (rhymedSyllables / totalSyllables) * 100;
 
     alert(
+        (selectedWords.length > 0 ? "SELECTED TEXT\n\n" : "FULL SONG\n\n") +
         "SYLLABLE BASED\n\n" +
         "Rhyme %: " + percent.toFixed(1) + "%\n\n" +
         "Total Syllables: " + totalSyllables + "\n" +
@@ -402,7 +472,8 @@ function showSyllableStats(){
     );
 }
 
-window.addEventListener("pointerdown", (e) => {
+lyricsBox.addEventListener("pointerdown", (e) => {
+    if(isUIElement(e.target)) return;
 
     let now = Date.now();
 
@@ -419,7 +490,14 @@ window.addEventListener("pointerdown", (e) => {
         tapCount = 0;
 
         toggleMode();
+    } else if (tapCount === 2)
+    {
+      tapCount = 0;
+      undo();
+      
     }
+    
+    
 
 });
 
@@ -606,6 +684,7 @@ function undo(){
 
     /* ⭐ rebuild word list after DOM restore */
     allWords = Array.from(display.querySelectorAll(".word"));
+    showToast("Undo done", "Redo", redo);
 }
 
 function redo(){
@@ -619,6 +698,7 @@ function redo(){
     display.innerHTML = state;
 
     allWords = Array.from(display.querySelectorAll(".word"));
+    showToast("Redo done");
 }
 
 /*lyricsBox.addEventListener("pointerdown",(e)=>{
@@ -1120,7 +1200,7 @@ function clearSelectionFormatting(range){
 
 /* highlight */
 
-document.addEventListener("pointerup", function(){
+lyricsBox.addEventListener("pointerup", function(){
 
     if(mode !== "highlight") return;
     
