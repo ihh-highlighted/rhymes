@@ -474,7 +474,6 @@ function showSyllableStats(){
 
 lyricsBox.addEventListener("pointerdown", (e) => {
 
-
     let now = Date.now();
 
     if(now - lastTapTime < 300){
@@ -485,20 +484,23 @@ lyricsBox.addEventListener("pointerdown", (e) => {
 
     lastTapTime = now;
 
-    if(tapCount === 3){
+    // clear previous timer
+    if(tapTimeout){
+        clearTimeout(tapTimeout);
+    }
+
+    tapTimeout = setTimeout(() => {
+
+        if(tapCount === 2){
+            undo();
+        }
+        else if(tapCount === 3){
+            toggleMode();
+        }
 
         tapCount = 0;
 
-        toggleMode();
-    } else if (tapCount === 2)
-    {
-      tapCount = 0;
-      undo();
-      
-    }
-    
-    
-
+    }, 250); // wait to see if more taps come
 });
 
 
