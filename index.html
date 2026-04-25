@@ -405,6 +405,47 @@ let tapCount = 0;
 let lastTapTime = 0;
 let tapTimeout = null;
 
+function showToast(message, actionText, actionFn){
+
+    let container = document.getElementById("toastContainer");
+
+    // 🔥 LIMIT: max 2 toasts
+    while(container.children.length >= 2){
+        container.firstChild.remove(); // remove oldest
+    }
+
+    let toast = document.createElement("div");
+    toast.className = "toast";
+
+    let text = document.createElement("span");
+    text.innerText = message;
+
+    toast.appendChild(text);
+
+    if(actionText && actionFn){
+        let btn = document.createElement("button");
+        btn.innerText = actionText;
+
+        btn.onclick = () => {
+            actionFn();
+            toast.remove();
+        };
+
+        toast.appendChild(btn);
+    }
+
+    container.appendChild(toast);
+
+    requestAnimationFrame(()=>{
+        toast.classList.add("show");
+    });
+
+    setTimeout(()=>{
+        toast.classList.remove("show");
+        setTimeout(()=> toast.remove(), 250);
+    }, 3000);
+}
+
 function showSyllableStats(){
 
     let totalSyllables = 0;
