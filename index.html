@@ -1131,11 +1131,10 @@ if(wordQueue.length > 0){
 
 
 // smoother scaling
-let duration = baseDuration / (1 + swipeVelocity * 3);
-
+//let duration = baseDuration / (1 + swipeVelocity * 3);
+let duration = baseDuration
 // clamp nicely
-if(duration < 80) duration = 80;// keep visible animation
-if(duration > 200) duration = 200;
+
 if(duration === 0){
 
     h.style.transition = "none";
