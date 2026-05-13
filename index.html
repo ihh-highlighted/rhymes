@@ -1134,8 +1134,8 @@ if(wordQueue.length > 0){
 let duration = baseDuration / (1 + swipeVelocity * 3);
 
 // clamp nicely
-if(duration < 80) duration = 80;     // keep visible animation
-if(swipeVelocity > 1.5) duration = 0; // ultra fast → instant
+if(duration < 80) duration = 80;// keep visible animation
+if(duration > 200) duration = 200;
 if(duration === 0){
 
     h.style.transition = "none";
