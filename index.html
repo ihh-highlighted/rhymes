@@ -1083,7 +1083,6 @@ function fillWordInstant(word){
 function startWordAnimation(word){
 
     isAnimatingWord = true;
-    animationSpeedMultiplier = 1;
 
     autoScrollToWord(word);
 
@@ -1091,10 +1090,13 @@ function startWordAnimation(word){
     word.style.opacity = 1;
 
     let highlights = Array.from(word.querySelectorAll(".highlight"));
-    let underlines = Array.from(word.querySelectorAll("span[style*='underline']"));
+    let underlines = Array.from(
+        word.querySelectorAll("span[style*='underline']")
+    );
 
     function animateHighlight(i){
 
+        // ✅ finished all highlights
         if(i >= highlights.length){
 
             underlines.forEach(u=>{
@@ -1103,50 +1105,36 @@ function startWordAnimation(word){
 
             isAnimatingWord = false;
 
-            /* ⭐ If user already swiped next word → start instantly */
-// ⭐ Process queued words
-if(wordQueue.length > 0){
+            // ✅ process queue
+            if(wordQueue.length > 0){
 
-    // 🚀 If too many → skip animation (instant fill all)
-    if(wordQueue.length > 3){
-
-        wordQueue.forEach(w=>{
-            fillWordInstant(w);
-        });
-
-        wordQueue = [];
-        isAnimatingWord = false;
-        return;
-    }
-
-    let next = wordQueue.shift();
-    startWordAnimation(next);
-}
+                let next = wordQueue.shift();
+                startWordAnimation(next);
+            }
 
             return;
         }
 
         let h = highlights[i];
 
+let width = h.getBoundingClientRect().width;
 
+//let pixelsPerSecond = 300;
 
-// smoother scaling
-//let duration = baseDuration / (1 + swipeVelocity * 3);
-let duration = baseDuration
-// clamp nicely
+let duration = (width / baseDuration) * 1000;
 
-if(duration === 0){
+duration = Math.max(80, duration);
+duration = Math.min(1200, duration);
 
-    h.style.transition = "none";
-    h.style.backgroundSize = "100% 100%";
+h.style.transition = "none";
+h.style.backgroundSize = "0% 100%";
 
-    // immediately go to next highlight
-    animateHighlight(i + 1);
-    return;
-}
+h.offsetWidth;
 
-        h.style.transition = `background-size ${duration}ms linear`;
-        h.style.backgroundSize = "100% 100%";
+h.style.transition =
+`background-size ${duration}ms linear`;
+
+h.style.backgroundSize = "100% 100%";
 
         h.addEventListener("transitionend", function handler(){
 
@@ -1160,7 +1148,7 @@ if(duration === 0){
 
     animateHighlight(0);
 }
-
+    
 function setColor(c){
     currentColor=c;
 }
