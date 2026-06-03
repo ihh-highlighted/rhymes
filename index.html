@@ -6,8 +6,8 @@
 <style>
 
 body{
-    background:#000;
-    color:white;
+    background:#E6E6E6;
+    color:black;
     font-family:Arial;
     padding:20px;
 }
@@ -48,7 +48,7 @@ label{
 }
 
 .recording .word{
-    /*opacity:.50;*/
+    opacity:.80;
 }
 
 .highlight{
@@ -60,6 +60,20 @@ label{
 
 /* highlight colors */
 
+/* YELLOW */
+.highlight[data-color="yellow1"]{background-image:linear-gradient(#fff9b3,#fff9b3);}
+.highlight[data-color="yellow2"]{background-image:linear-gradient(#fff066,#fff066);}
+.highlight[data-color="yellow3"]{background-image:linear-gradient(#ffe600,#ffe600);}
+.highlight[data-color="yellow4"]{background-image:linear-gradient(#ccad00,#ccad00);}
+.highlight[data-color="yellow5"]{background-image:linear-gradient(#806c00,#806c00);}
+
+/* PINK */
+.highlight[data-color="pink1"]{background-image:linear-gradient(#ffc2e0,#ffc2e0);}
+.highlight[data-color="pink2"]{background-image:linear-gradient(#ff85c2,#ff85c2);}
+.highlight[data-color="pink3"]{background-image:linear-gradient(#ff4da6,#ff4da6);}
+.highlight[data-color="pink4"]{background-image:linear-gradient(#cc007a,#cc007a);}
+.highlight[data-color="pink5"]{background-image:linear-gradient(#80004d,#80004d);}
+    
 /* RED */
 .highlight[data-color="red1"]{background-image:linear-gradient(#ffb3b3,#ffb3b3);}
 .highlight[data-color="red2"]{background-image:linear-gradient(#ff6666,#ff6666);}
@@ -311,12 +325,24 @@ Tool:
 
 <div class="palette">
 
+<button class="colorBtn" onclick="setColor('pink1')" style="background:#ffc2e0"></button>
+<button class="colorBtn" onclick="setColor('pink2')" style="background:#ff85c2"></button>
+<button class="colorBtn" onclick="setColor('pink3')" style="background:#ff4da6"></button>
+<button class="colorBtn" onclick="setColor('pink4')" style="background:#cc007a"></button>
+<button class="colorBtn" onclick="setColor('pink5')" style="background:#80004d"></button>
+    
 <button class="colorBtn" onclick="setColor('red1')" style="background:#ffb3b3"></button>
 <button class="colorBtn" onclick="setColor('red2')" style="background:#ff6666"></button>
 <button class="colorBtn" onclick="setColor('red3')" style="background:#ff1a1a"></button>
 <button class="colorBtn" onclick="setColor('red4')" style="background:#cc0000"></button>
 <button class="colorBtn" onclick="setColor('red5')" style="background:#800000"></button>
 
+<button class="colorBtn" onclick="setColor('yellow1')" style="background:#fff9b3"></button>
+<button class="colorBtn" onclick="setColor('yellow2')" style="background:#fff066"></button>
+<button class="colorBtn" onclick="setColor('yellow3')" style="background:#ffe600"></button>
+<button class="colorBtn" onclick="setColor('yellow4')" style="background:#ccad00"></button>
+<button class="colorBtn" onclick="setColor('yellow5')" style="background:#806c00"></button>
+    
 <button class="colorBtn" onclick="setColor('blue1')" style="background:#b3d9ff"></button>
 <button class="colorBtn" onclick="setColor('blue2')" style="background:#66b3ff"></button>
 <button class="colorBtn" onclick="setColor('blue3')" style="background:#1a8cff"></button>
