@@ -248,6 +248,10 @@ label{
     cursor: pointer;
 }
 
+.hiddenBtn {
+    display: none;
+}
+
 </style>
 </head>
 
@@ -283,7 +287,7 @@ label{
 <textarea id="input"></textarea><br>
 
 <button onclick="loadText()">Load</button>
-<button onclick="toggleMode()" id="modeBtn">Recording Mode</button>
+<button onclick="toggleMode()" class="hiddenBtn" id="modeBtn">Recording Mode</button>
 
 <br>
 
@@ -319,18 +323,18 @@ oninput="display.style.fontSize=this.value+'px'">
 <input type="range" min="1" max="3" step="0.1" value="1.6"
 oninput="display.style.lineHeight=this.value">
 
-<label>Swipe sensitivity</label>
-<input type="range" id="sensitivity" min="5" max="50" step="0.1" value="15">
+<label class="hiddenBtn">Swipe sensitivity</label>
+<input class="hiddenBtn" type="range" id="sensitivity" min="5" max="50" step="0.1" value="15">
 
-<label>highlight speed</label>
-<input type="range" id="highlightSpeed" min="50" max="400" step="0.1" value="150">
+<label class="hiddenBtn" >highlight speed</label>
+<input class="hiddenBtn" type="range" id="highlightSpeed" min="50" max="400" step="0.1" value="150">
 
 
 <br>
 
 Tool:
 <button onclick="setTool('highlight')">Highlight</button>
-<button onclick="setTool('underline')">Underline</button>
+<button class="hiddenBtn" onclick="setTool('underline')">Underline</button>
 <button onclick="setTool('clear')">Clear</button>
 
 <button onclick="undo()">Undo</button>
