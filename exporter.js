@@ -3,8 +3,6 @@ const ExportManager = {
   isExporting: false,
   mediaRecorder: null,
   recordedChunks: [],
-  audioCtx: null,
-  audioSource: null,
 
   getResolutionDimensions(resolution) {
     switch (resolution) {
@@ -35,19 +33,18 @@ const ExportManager = {
     };
   },
 
-  // Get mobile/web editor-friendly MIME type including audio codecs
+  // Get mobile editor-friendly MIME type (Prefers MP4 for Alight Motion / VN Editor)
   getSupportedMimeType() {
     const types = [
-      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-      'video/mp4;codecs=avc1,aac',
+      'video/mp4;codecs=avc1.42E01E',
+      'video/mp4;codecs=h264',
       'video/mp4',
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm;codecs=h264,opus',
+      'video/webm;codecs=h264',
+      'video/webm;codecs=vp8',
       'video/webm'
     ];
     for (const type of types) {
-      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)) {
+      if (MediaRecorder.isTypeSupported(type)) {
         return type;
       }
     }
@@ -70,41 +67,16 @@ const ExportManager = {
     // Stream captured at target FPS
     const canvasStream = exportCanvas.captureStream(fps);
 
-    // Set up Web Audio stream to capture audio buffer
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    this.audioCtx = new AudioContextClass();
-    const audioDest = this.audioCtx.createMediaStreamDestination();
-    const timeInfo = this.getExportDuration(project);
-
-    if (AudioManager.rawAudioBuffer) {
-      this.audioSource = this.audioCtx.createBufferSource();
-      this.audioSource.buffer = AudioManager.rawAudioBuffer;
-      this.audioSource.connect(audioDest);
-    } else {
-      // Create a silent audio track if project audio is missing
-      const silentBuffer = this.audioCtx.createBuffer(1, this.audioCtx.sampleRate * Math.max(0.1, timeInfo.duration), this.audioCtx.sampleRate);
-      this.audioSource = this.audioCtx.createBufferSource();
-      this.audioSource.buffer = silentBuffer;
-      this.audioSource.connect(audioDest);
-    }
-
-    // Combine Video + Audio tracks into a single unified MediaStream
-    const combinedStream = new MediaStream([
-      ...canvasStream.getVideoTracks(),
-      ...audioDest.stream.getAudioTracks()
-    ]);
-
     const mimeType = this.getSupportedMimeType();
     const targetBitrate = dims.width >= 1920 ? 8000000 : 4000000;
 
     try {
-      this.mediaRecorder = new MediaRecorder(combinedStream, {
+      this.mediaRecorder = new MediaRecorder(canvasStream, {
         mimeType: mimeType,
         videoBitsPerSecond: targetBitrate
       });
     } catch (e) {
       this.isExporting = false;
-      if (this.audioCtx) this.audioCtx.close();
       if (onError) onError('MediaRecorder initialization failed.');
       return;
     }
@@ -114,17 +86,10 @@ const ExportManager = {
       if (e.data && e.data.size > 0) this.recordedChunks.push(e.data);
     };
 
+    const timeInfo = this.getExportDuration(project);
     const targetDurationMs = Math.round(timeInfo.duration * 1000);
 
     this.mediaRecorder.onstop = async () => {
-      // Clean up audio playback nodes
-      if (this.audioSource) {
-        try { this.audioSource.stop(); } catch (e) {}
-      }
-      if (this.audioCtx) {
-        this.audioCtx.close();
-      }
-
       this.isExporting = false;
 
       const rawBlob = new Blob(this.recordedChunks, { type: mimeType });
@@ -145,15 +110,12 @@ const ExportManager = {
       if (onComplete) onComplete();
     };
 
-    // Start video recorder and audio player concurrently
+    // Start recorder
     this.mediaRecorder.start(1000);
-    if (this.audioSource) {
-      this.audioSource.start(0, timeInfo.start, timeInfo.duration);
-    }
 
     const startTime = performance.now();
 
-    // Real-time animation frame loop to guarantee exact duration & sync
+    // Real-time animation frame loop to guarantee exact duration & no slow-motion
     const renderLoop = () => {
       if (!this.isExporting) return;
 
@@ -167,9 +129,7 @@ const ExportManager = {
         renderFunction(exportCtx, dims.width, dims.height, timeInfo.end, true);
 
         if (onProgress) onProgress(100);
-        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-          this.mediaRecorder.stop();
-        }
+        this.mediaRecorder.stop();
         return;
       }
 
@@ -267,12 +227,6 @@ const ExportManager = {
       this.isExporting = false;
       if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
         this.mediaRecorder.stop();
-      }
-      if (this.audioSource) {
-        try { this.audioSource.stop(); } catch (e) {}
-      }
-      if (this.audioCtx) {
-        this.audioCtx.close();
       }
       AudioManager.pause();
     }
