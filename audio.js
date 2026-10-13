@@ -134,21 +134,40 @@ const AudioManager = {
     this.audio.currentTime = this.trimStart + (percent / 100) * effectiveDur;
   },
 
-  renderKeyframeBar(container, keyframes) {
-    container.innerHTML = '';
+  renderKeyframeBar(container, keyframes, onClick, activeTime) {
     const effectiveDur = this.getEffectiveDuration();
 
-    keyframes.forEach(kf => {
-      const relativeTime = kf.time - this.trimStart;
-      const percent = (relativeTime / effectiveDur) * 100;
+    // Only rebuild the DOM when keyframes/trim actually changed. Rebuilding
+    // every frame during playback would swallow taps on the diamonds.
+    const sig = keyframes.map(k => `${k.time}`).join('|') + `#${this.trimStart}#${effectiveDur}`;
+    if (container._kfSig !== sig) {
+      container._kfSig = sig;
+      container.innerHTML = '';
 
-      if (percent >= 0 && percent <= 100) {
-        const diamond = document.createElement('div');
-        diamond.className = 'kf-diamond';
-        diamond.style.left = `${percent}%`;
-        diamond.title = `Keyframe at ${this.formatTime(kf.time)}`;
-        container.appendChild(diamond);
-      }
+      keyframes.forEach(kf => {
+        const relativeTime = kf.time - this.trimStart;
+        const percent = (relativeTime / effectiveDur) * 100;
+
+        if (percent >= 0 && percent <= 100) {
+          const diamond = document.createElement('div');
+          diamond.className = 'kf-diamond';
+          diamond.style.left = `${percent}%`;
+          diamond.dataset.time = kf.time;
+          diamond.title = `Keyframe at ${this.formatTime(kf.time)} - tap to jump`;
+          diamond.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (onClick) onClick(parseFloat(diamond.dataset.time));
+          });
+          container.appendChild(diamond);
+        }
+      });
+    }
+
+    // Highlight the diamond at the playhead
+    container.querySelectorAll('.kf-diamond').forEach(d => {
+      const isActive = activeTime !== undefined &&
+        Math.abs(parseFloat(d.dataset.time) - activeTime) < 0.12;
+      d.classList.toggle('active', isActive);
     });
   },
 

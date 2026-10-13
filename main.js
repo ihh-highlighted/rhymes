@@ -39,7 +39,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnDelKf = document.getElementById("btn-del-kf");
   const btnAddKf = document.getElementById("btn-add-kf");
   const kfStatus = document.getElementById("kf-status");
-  const toggleFreeRoam = document.getElementById("toggle-free-roam");
+  const btnUndoKf = document.getElementById("btn-undo-kf");
+  const btnRedoKf = document.getElementById("btn-redo-kf");
+
+  // Keyframe edit history (separate from highlight undo/redo)
+  const KF_EPS = 0.12; // seconds: "same keyframe" tolerance
+  const KF_HISTORY_LIMIT = 100;
+  const kfHistory = { undo: [], redo: [] };
+
+  // Last known lyrics text, used to work out exactly what an edit changed
+  let lastLyricsText = "";
+
+  // Word touched when a highlight/underline gesture starts (tap = whole word)
+  let gestureWord = null;
 
   const skipBack5 = document.getElementById("skip-back-5");
   const skipBack1 = document.getElementById("skip-back-1");
@@ -54,6 +66,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnClearHl = document.getElementById("btn-clear-hl");
   const colorSwatches = document.querySelectorAll(".swatch");
   const customHlColor = document.getElementById("custom-hl-color");
+  const toolButtons = document.querySelectorAll(".tool-btn");
+  const highlightHint = document.getElementById("highlight-instructions");
+  if (!window.AppState.highlightTool) window.AppState.highlightTool = "highlight";
 
   // Recording Controls
   const btnToggleRecord = document.getElementById("btn-toggle-record");
@@ -157,6 +172,8 @@ if (btnImportProject && importFileInput) {
     if (!project.keyframes)
       project.keyframes = [{ id: "kf_0", time: 0, scrollY: 0 }];
     if (!project.highlights) project.highlights = [];
+    // Older projects: split highlights so none spans spaces or two words
+    project.highlights = normalizeAnnotations(project.highlights, project.lyrics || "");
     if (!project.wordTimings) project.wordTimings = {};
 
     window.AppState.currentProject = project;
@@ -164,18 +181,19 @@ if (btnImportProject && importFileInput) {
     window.AppState.highlights = project.highlights;
     window.AppState.wordTimings = project.wordTimings;
     window.AppState.manualScrollY = 0;
-    window.AppState.isFreeRoam = false;
+    resetKfHistory();
     window.AppState.isHighlightMode = false;
     window.AppState.isRecording = false;
     window.AppState.undoStack = [];
     window.AppState.redoStack = [];
 
-    toggleFreeRoam.checked = false;
     toggleHighlightMode.checked = false;
     highlightModeText.textContent = "Preview Mode";
+    updateToolUI();
 
     titleInput.value = project.title;
     lyricsInput.value = project.lyrics;
+    lastLyricsText = lyricsInput.value;
 
     settingFont.value = project.settings.fontFamily;
     settingFontSize.value = project.settings.fontSize;
@@ -276,401 +294,424 @@ if (btnImportProject && importFileInput) {
     return sorted[sorted.length - 1].scrollY;
   }
 
+  function findKfIndexAt(time) {
+    return window.AppState.keyframes.findIndex(
+      (kf) => Math.abs(kf.time - time) < KF_EPS,
+    );
+  }
+
   function updateKfUI() {
     const currentTime = AudioManager.audio.currentTime || 0;
-    const existingIndex = window.AppState.keyframes.findIndex(
-      (kf) => Math.abs(kf.time - currentTime) < 0.15,
-    );
+    const existingIndex = findKfIndexAt(currentTime);
+    const hasUnsavedMove = Math.abs(window.AppState.manualScrollY) > 0.5;
 
     if (existingIndex !== -1) {
-      kfStatus.textContent = `KF at ${AudioManager.formatTime(currentTime)}`;
+      kfStatus.textContent =
+        `KF at ${AudioManager.formatTime(currentTime)}` +
+        (hasUnsavedMove ? " • unsaved move" : "");
+      if (btnAddKf) btnAddKf.textContent = "✓ Update Keyframe";
       btnDelKf.style.display = "inline-block";
     } else {
-      kfStatus.textContent = "No KF at current time";
+      kfStatus.textContent = hasUnsavedMove
+        ? "No KF here • unsaved move"
+        : "No KF at current time";
+      if (btnAddKf) btnAddKf.textContent = "+ Add Keyframe";
       btnDelKf.style.display = "none";
     }
-    AudioManager.renderKeyframeBar(keyframeBar, window.AppState.keyframes);
+
+    AudioManager.renderKeyframeBar(
+      keyframeBar,
+      window.AppState.keyframes,
+      jumpToKeyframe,
+      currentTime,
+    );
+
+    btnUndoKf.disabled = kfHistory.undo.length === 0;
+    btnRedoKf.disabled = kfHistory.redo.length === 0;
   }
 
   // --- TEXT LAYOUT & BASELINE HIGHLIGHT CALCULATOR ---
-  function computeLyricsLayout(
+function computeLyricsLayout(
+  targetCtx,
+  width,
+  height,
+  totalScrollY,
+  s,
+  scaleRatio,
+) {
+  const rawText = lyricsInput.value;
+  if (!rawText.trim()) return [];
+
+  const scaledFontSize = s.fontSize * scaleRatio;
+  targetCtx.font = `bold ${scaledFontSize}px ${s.fontFamily}`;
+
+  const leftX = width * (s.marginLeftPercent / 100);
+  const rightX = width * (1 - s.marginRightPercent / 100);
+  const maxAllowedWidth = rightX - leftX;
+
+  const rawLines = rawText.split("\n");
+  let globalIndexCounter = 0;
+  const wrappedLines = [];
+
+  rawLines.forEach((rawLine, lineIdx) => {
+    const words = rawLine.split(" ");
+    let currentLine = "";
+    let lineStartIdx = globalIndexCounter;
+    let lineWords = [];
+
+    words.forEach((word) => {
+      const testLine = currentLine ? currentLine + " " + word : word;
+      const testWidth = targetCtx.measureText(testLine).width;
+
+      if (testWidth > maxAllowedWidth && currentLine !== "") {
+        wrappedLines.push({
+          text: currentLine,
+          startIdx: lineStartIdx,
+          endIdx: lineStartIdx + currentLine.length,
+          words: lineWords,
+          lineIndex: wrappedLines.length,
+          rawLineIndex: lineIdx,
+        });
+        lineStartIdx += currentLine.length + 1;
+        currentLine = word;
+        lineWords = [word];
+      } else {
+        currentLine = testLine;
+        lineWords.push(word);
+      }
+    });
+
+    wrappedLines.push({
+      text: currentLine,
+      startIdx: lineStartIdx,
+      endIdx: lineStartIdx + currentLine.length,
+      words: lineWords,
+      lineIndex: wrappedLines.length,
+      rawLineIndex: lineIdx,
+    });
+
+    globalIndexCounter += rawLine.length + 1;
+  });
+
+  const lineHeight = scaledFontSize * s.lineHeight;
+  const totalBlockHeight = wrappedLines.length * lineHeight;
+  const baseStartY = height / 2 - totalBlockHeight / 2 + lineHeight / 2;
+  // One shared integer scroll offset: every line moves by the same amount
+  // each frame, so lines can't cross rounding thresholds at different times.
+  const scrollOffset = Math.round(totalScrollY);
+
+  return wrappedLines.map((lineObj, idx) => {
+    // Static layout is rounded once; scroll is added uniformly on top
+    const lineCenterY = Math.round(baseStartY + idx * lineHeight) + scrollOffset;
+    const baselineY = Math.round(lineCenterY + scaledFontSize * 0.35);
+
+    const highlightTop = Math.round(baselineY - scaledFontSize * 0.78);
+    const highlightBottom = Math.round(baselineY + scaledFontSize * 0.08);
+    const highlightHeight = Math.round(highlightBottom - highlightTop);
+    const underlineTop = baselineY + Math.round(scaledFontSize * 0.11);
+    const underlineHeight = Math.max(2, Math.round(scaledFontSize * 0.07));
+
+    const totalLineWidth = targetCtx.measureText(lineObj.text).width;
+    let startX = width / 2 - totalLineWidth / 2;
+
+    if (s.textAlign === "left") {
+      startX = leftX;
+    } else if (s.textAlign === "right") {
+      startX = rightX - totalLineWidth;
+    }
+
+    const charXPositions = [startX];
+    let accWidth = 0;
+    for (let i = 0; i < lineObj.text.length; i++) {
+      accWidth += targetCtx.measureText(lineObj.text[i]).width;
+      charXPositions.push(startX + accWidth);
+    }
+
+    const wordRanges = [];
+    let wAcc = 0;
+    const splitWords = lineObj.text.split(" ");
+
+    splitWords.forEach((w) => {
+      const wStart = lineObj.startIdx + wAcc;
+      const wEnd = Math.min(lineObj.endIdx, wStart + w.length + 1);
+      wordRanges.push({
+        word: w,
+        startIdx: wStart,
+        wordEndIdx: wStart + w.length,
+        endIdx: wEnd,
+      });
+      wAcc += w.length + 1;
+    });
+
+    return {
+      text: lineObj.text,
+      rawLineIndex: lineObj.rawLineIndex,
+      startIdx: lineObj.startIdx,
+      endIdx: lineObj.endIdx,
+      lineCenterY,
+      baselineY,
+      highlightTop,
+      highlightBottom,
+      highlightHeight,
+      underlineTop,
+      underlineHeight,
+      lineHeight,
+      startX,
+      charXPositions,
+      wordRanges,
+    };
+  });
+}
+
+// --- UNIVERSAL CANVAS RENDER FUNCTION ---
+function renderCanvas(
+  targetCtx,
+  width,
+  height,
+  currentTime,
+  forcePreviewMode = false,
+) {
+  const proj = window.AppState.currentProject;
+  if (!proj) return;
+
+  const s = proj.settings;
+  const scaleRatio = width / window.APP_CONFIG.CANVAS_WIDTH;
+
+  // 1. Draw Background
+  if (s.bgColor === "genius-gradient") {
+    const bgGradient = targetCtx.createLinearGradient(0, 0, 0, height);
+    bgGradient.addColorStop(0.0, "#333639");
+    bgGradient.addColorStop(0.2, "#a8abaf");
+    bgGradient.addColorStop(0.5, "#e8eaed");
+    bgGradient.addColorStop(0.8, "#a8abaf");
+    bgGradient.addColorStop(1.0, "#333639");
+    targetCtx.fillStyle = bgGradient;
+  } else {
+    targetCtx.fillStyle = s.bgColor;
+  }
+  targetCtx.fillRect(0, 0, width, height);
+
+  if (!lyricsInput.value.trim()) return;
+
+  const interpolatedScrollY =
+    getInterpolatedScrollY(currentTime) * scaleRatio;
+  const manualOffset = forcePreviewMode ? 0 : window.AppState.manualScrollY;
+  const totalScrollY = interpolatedScrollY + manualOffset * scaleRatio;
+
+  const linesData = computeLyricsLayout(
     targetCtx,
     width,
     height,
     totalScrollY,
     s,
     scaleRatio,
-  ) {
-    const rawText = lyricsInput.value;
-    if (!rawText.trim()) return [];
+  );
 
-    const scaledFontSize = s.fontSize * scaleRatio;
-    targetCtx.font = `bold ${scaledFontSize}px ${s.fontFamily}`;
+  const isHighlightMode =
+    window.AppState.isHighlightMode && !forcePreviewMode;
+  const isRecording = window.AppState.isRecording && !forcePreviewMode;
 
-    const leftX = width * (s.marginLeftPercent / 100);
-    const rightX = width * (1 - s.marginRightPercent / 100);
-    const maxAllowedWidth = rightX - leftX;
+  // 2. Draw Highlights (Background Boxes)
+  const rawLineWordsMap = {};
+  linesData.forEach((line) => {
+    const rIdx = line.rawLineIndex;
+    if (!rawLineWordsMap[rIdx]) rawLineWordsMap[rIdx] = [];
+    rawLineWordsMap[rIdx].push(...line.wordRanges);
+  });
 
-    const rawLines = rawText.split("\n");
-    let globalIndexCounter = 0;
-    const wrappedLines = [];
-
-    rawLines.forEach((rawLine, lineIdx) => {
-      const words = rawLine.split(" ");
-      let currentLine = "";
-      let lineStartIdx = globalIndexCounter;
-      let lineWords = [];
-
-      words.forEach((word) => {
-        const testLine = currentLine ? currentLine + " " + word : word;
-        const testWidth = targetCtx.measureText(testLine).width;
-
-        if (testWidth > maxAllowedWidth && currentLine !== "") {
-          wrappedLines.push({
-            text: currentLine,
-            startIdx: lineStartIdx,
-            endIdx: lineStartIdx + currentLine.length,
-            words: lineWords,
-            lineIndex: wrappedLines.length,
-            rawLineIndex: lineIdx,
-          });
-          lineStartIdx += currentLine.length + 1;
-          currentLine = word;
-          lineWords = [word];
-        } else {
-          currentLine = testLine;
-          lineWords.push(word);
-        }
-      });
-
-      wrappedLines.push({
-        text: currentLine,
-        startIdx: lineStartIdx,
-        endIdx: lineStartIdx + currentLine.length,
-        words: lineWords,
-        lineIndex: wrappedLines.length,
-        rawLineIndex: lineIdx,
-      });
-
-      globalIndexCounter += rawLine.length + 1;
-    });
-
-    const lineHeight = scaledFontSize * s.lineHeight;
-    const totalBlockHeight = wrappedLines.length * lineHeight;
-    const baseStartY = height / 2 - totalBlockHeight / 2 + lineHeight / 2;
-    const startY = baseStartY + totalScrollY;
-
-    return wrappedLines.map((lineObj, idx) => {
-      const lineCenterY = startY + idx * lineHeight;
-
-      const baselineY = lineCenterY + scaledFontSize * 0.35;
-
-      const highlightBottom = baselineY + scaledFontSize * 0.08;
-      const highlightTop = baselineY - scaledFontSize * 0.78;
-      const highlightHeight = highlightBottom - highlightTop;
-
-      const totalLineWidth = targetCtx.measureText(lineObj.text).width;
-      let startX = width / 2 - totalLineWidth / 2;
-
-      if (s.textAlign === "left") {
-        startX = leftX;
-      } else if (s.textAlign === "right") {
-        startX = rightX - totalLineWidth;
+  const getLineAvgDuration = (rawWords) => {
+    let total = 0,
+      count = 0;
+    for (let i = 0; i < rawWords.length - 1; i++) {
+      const t1 = window.AppState.wordTimings
+        ? window.AppState.wordTimings[rawWords[i].startIdx]
+        : undefined;
+      const t2 = window.AppState.wordTimings
+        ? window.AppState.wordTimings[rawWords[i + 1].startIdx]
+        : undefined;
+      if (t1 !== undefined && t2 !== undefined && t2 > t1) {
+        total += t2 - t1;
+        count++;
       }
-
-      const charXPositions = [startX];
-      let accWidth = 0;
-      for (let i = 0; i < lineObj.text.length; i++) {
-        accWidth += targetCtx.measureText(lineObj.text[i]).width;
-        charXPositions.push(startX + accWidth);
-      }
-
-      const wordRanges = [];
-      let wAcc = 0;
-      const splitWords = lineObj.text.split(" ");
-
-      splitWords.forEach((w) => {
-        const wStart = lineObj.startIdx + wAcc;
-        const wEnd = Math.min(lineObj.endIdx, wStart + w.length + 1);
-        wordRanges.push({
-          word: w,
-          startIdx: wStart,
-          wordEndIdx: wStart + w.length,
-          endIdx: wEnd,
-        });
-        wAcc += w.length + 1;
-      });
-
-      return {
-        text: lineObj.text,
-        rawLineIndex: lineObj.rawLineIndex,
-        startIdx: lineObj.startIdx,
-        endIdx: lineObj.endIdx,
-        lineCenterY,
-        baselineY,
-        highlightTop,
-        highlightBottom,
-        highlightHeight,
-        lineHeight,
-        startX,
-        charXPositions,
-        wordRanges,
-      };
-    });
-  }
-
-  // --- UNIVERSAL CANVAS RENDER FUNCTION ---
-  // --- UNIVERSAL CANVAS RENDER FUNCTION ---
-  function renderCanvas(
-    targetCtx,
-    width,
-    height,
-    currentTime,
-    forcePreviewMode = false,
-  ) {
-    const proj = window.AppState.currentProject;
-    if (!proj) return;
-
-    const s = proj.settings;
-    const scaleRatio = width / window.APP_CONFIG.CANVAS_WIDTH;
-
-    // 1. Draw Background
-    if (s.bgColor === "genius-gradient") {
-      const bgGradient = targetCtx.createLinearGradient(0, 0, 0, height);
-      bgGradient.addColorStop(0.0, "#333639");
-      bgGradient.addColorStop(0.2, "#a8abaf");
-      bgGradient.addColorStop(0.5, "#e8eaed");
-      bgGradient.addColorStop(0.8, "#a8abaf");
-      bgGradient.addColorStop(1.0, "#333639");
-      targetCtx.fillStyle = bgGradient;
-    } else {
-      targetCtx.fillStyle = s.bgColor;
     }
-    targetCtx.fillRect(0, 0, width, height);
+    return count > 0 ? total / count : 0.35;
+  };
 
-    if (!lyricsInput.value.trim()) return;
-
-    const interpolatedScrollY =
-      getInterpolatedScrollY(currentTime) * scaleRatio;
-    const totalScrollY =
-      interpolatedScrollY + window.AppState.manualScrollY * scaleRatio;
-
-    const linesData = computeLyricsLayout(
-      targetCtx,
-      width,
-      height,
-      totalScrollY,
-      s,
-      scaleRatio,
-    );
-
-    const isHighlightMode =
-      window.AppState.isHighlightMode && !forcePreviewMode;
-    const isRecording = window.AppState.isRecording && !forcePreviewMode;
-
-    // 2. Draw Highlights (Background Boxes)
-    // Group words by original raw input line index for line-level timing calculations
-    const rawLineWordsMap = {};
+  window.AppState.highlights.forEach((hl) => {
     linesData.forEach((line) => {
-      const rIdx = line.rawLineIndex;
-      if (!rawLineWordsMap[rIdx]) rawLineWordsMap[rIdx] = [];
-      rawLineWordsMap[rIdx].push(...line.wordRanges);
-    });
+      line.wordRanges.forEach((wordObj) => {
+        const overlapStart = Math.max(hl.startIdx, wordObj.startIdx);
+        const overlapEnd = Math.min(hl.endIdx, wordObj.wordEndIdx);
 
-    // Helper to calculate the average time duration between words in a raw line
-    const getLineAvgDuration = (rawWords) => {
-      let total = 0,
-        count = 0;
-      for (let i = 0; i < rawWords.length - 1; i++) {
-        const t1 = window.AppState.wordTimings
-          ? window.AppState.wordTimings[rawWords[i].startIdx]
-          : undefined;
-        const t2 = window.AppState.wordTimings
-          ? window.AppState.wordTimings[rawWords[i + 1].startIdx]
-          : undefined;
-        if (t1 !== undefined && t2 !== undefined && t2 > t1) {
-          total += t2 - t1;
-          count++;
-        }
-      }
-      return count > 0 ? total / count : 0.35; // Default fallback: 350ms per word
-    };
+        if (overlapStart < overlapEnd) {
+          let hlTime = hl.timestamp !== undefined ? hl.timestamp : 0;
 
-    window.AppState.highlights.forEach((hl) => {
-      linesData.forEach((line) => {
-        line.wordRanges.forEach((wordObj) => {
-          const overlapStart = Math.max(hl.startIdx, wordObj.startIdx);
-          const overlapEnd = Math.min(hl.endIdx, wordObj.endIdx);
+          if (
+            window.AppState.wordTimings &&
+            window.AppState.wordTimings[wordObj.startIdx] !== undefined
+          ) {
+            const tWord = window.AppState.wordTimings[wordObj.startIdx];
+            const rawWords = rawLineWordsMap[line.rawLineIndex] || [];
+            const wordIdxInRawLine = rawWords.findIndex(
+              (w) => w.startIdx === wordObj.startIdx,
+            );
 
-          if (overlapStart < overlapEnd) {
-            let hlTime = hl.timestamp !== undefined ? hl.timestamp : 0;
+            const wordHls = window.AppState.highlights
+              .filter(
+                (h) =>
+                  (h.type || "highlight") === (hl.type || "highlight") &&
+                  Math.max(h.startIdx, wordObj.startIdx) <
+                    Math.min(h.endIdx, wordObj.wordEndIdx),
+              )
+              .sort((a, b) => a.startIdx - b.startIdx);
 
-            if (
-              window.AppState.wordTimings &&
-              window.AppState.wordTimings[wordObj.startIdx] !== undefined
-            ) {
-              const tWord = window.AppState.wordTimings[wordObj.startIdx];
-              const rawWords = rawLineWordsMap[line.rawLineIndex] || [];
-              const wordIdxInRawLine = rawWords.findIndex(
-                (w) => w.startIdx === wordObj.startIdx,
-              );
+            const hlIndexInWord = wordHls.indexOf(hl);
+            const totalHlsInWord = wordHls.length;
 
-              // 1. Gather & SORT all highlights intersecting this word left-to-right
-              const wordHls = window.AppState.highlights
-                .filter(
-                  (h) =>
-                    Math.max(h.startIdx, wordObj.startIdx) <
-                    Math.min(h.endIdx, wordObj.endIdx),
-                )
-                .sort((a, b) => a.startIdx - b.startIdx);
+            let totalWordDuration = 0.3;
 
-              const hlIndexInWord = wordHls.indexOf(hl);
-              const totalHlsInWord = wordHls.length;
-
-              // 2. Compute exact raw duration window for the word
-              let totalWordDuration = 0.3;
-
-              if (rawWords.length > 1) {
-                if (
-                  wordIdxInRawLine >= 0 &&
-                  wordIdxInRawLine < rawWords.length - 1
-                ) {
-                  const nextWord = rawWords[wordIdxInRawLine + 1];
-                  const tNext = window.AppState.wordTimings[nextWord.startIdx];
-                  if (tNext !== undefined && tNext > tWord) {
-                    totalWordDuration = tNext - tWord;
-                  } else {
-                    totalWordDuration = getLineAvgDuration(rawWords);
-                  }
+            if (rawWords.length > 1) {
+              if (
+                wordIdxInRawLine >= 0 &&
+                wordIdxInRawLine < rawWords.length - 1
+              ) {
+                const nextWord = rawWords[wordIdxInRawLine + 1];
+                const tNext = window.AppState.wordTimings[nextWord.startIdx];
+                if (tNext !== undefined && tNext > tWord) {
+                  totalWordDuration = tNext - tWord;
                 } else {
-                  // End-of-line word -> use average duration of line
                   totalWordDuration = getLineAvgDuration(rawWords);
                 }
-              }
-
-              // 3. Dynamic Inter-Word Gap:
-              // Scaled to max 15% of total word duration (max 100ms).
-              // For fast words, this gap naturally shrinks down to almost zero so intra-word highlights get priority.
-              const interWordGap = Math.min(0.1, totalWordDuration * 0.15);
-              const activeDuration = Math.max(
-                0.01,
-                totalWordDuration - interWordGap,
-              );
-
-              // 4. Stagger highlights across activeDuration without hardcoded minimum floor
-              if (totalHlsInWord > 1 && hlIndexInWord >= 0) {
-                const delayPerHl = activeDuration / totalHlsInWord;
-                hlTime = tWord + hlIndexInWord * delayPerHl;
               } else {
-                hlTime = tWord; // First highlight triggers immediately with the word
+                totalWordDuration = getLineAvgDuration(rawWords);
               }
             }
 
-            let shouldDrawHighlight = false;
+            const interWordGap = Math.min(0.1, totalWordDuration * 0.15);
+            const activeDuration = Math.max(
+              0.01,
+              totalWordDuration - interWordGap,
+            );
 
-            if (isHighlightMode) {
-              // Highlight Mode: Show full highlights statically for editing
-              shouldDrawHighlight = true;
+            if (totalHlsInWord > 1 && hlIndexInWord >= 0) {
+              const delayPerHl = activeDuration / totalHlsInWord;
+              hlTime = tWord + hlIndexInWord * delayPerHl;
             } else {
-              // Preview / Export Mode: Appear when currentTime reaches the calculated hlTime
-              if (currentTime >= hlTime) {
-                shouldDrawHighlight = true;
-              }
+              hlTime = tWord;
             }
+          }
 
-            if (shouldDrawHighlight) {
-              const localStart = overlapStart - line.startIdx;
-              const localEnd = overlapEnd - line.startIdx;
+          let shouldDrawHighlight = false;
 
-              const hx1 = line.charXPositions[localStart];
-              const hx2 = line.charXPositions[localEnd];
+          if (isHighlightMode) {
+            shouldDrawHighlight = true;
+          } else {
+            if (currentTime >= hlTime) {
+              shouldDrawHighlight = true;
+            }
+          }
 
-              targetCtx.save();
-              targetCtx.globalAlpha = 1.0;
-              targetCtx.fillStyle = hl.color;
+          if (shouldDrawHighlight) {
+            const localStart = overlapStart - line.startIdx;
+            const localEnd = overlapEnd - line.startIdx;
+
+            const hx1 = Math.round(line.charXPositions[localStart]);
+            const hx2 = Math.round(line.charXPositions[localEnd]);
+
+            targetCtx.save();
+            targetCtx.globalAlpha = 1.0;
+            targetCtx.fillStyle = hl.color;
+            if (hl.type === "underline") {
+              targetCtx.fillRect(
+                hx1,
+                line.underlineTop,
+                hx2 - hx1,
+                line.underlineHeight,
+              );
+            } else {
               targetCtx.fillRect(
                 hx1,
                 line.highlightTop,
                 hx2 - hx1,
                 line.highlightHeight,
               );
-              targetCtx.restore();
             }
+            targetCtx.restore();
           }
-        });
+        }
       });
     });
+  });
 
-    // Active dragging highlight preview box
-    if (
-      isHighlightMode &&
-      activeHighlightDrag &&
-      activeHighlightDrag.startIdx !== null &&
-      activeHighlightDrag.endIdx !== null
-    ) {
-      const minIdx = Math.min(
-        activeHighlightDrag.startIdx,
-        activeHighlightDrag.endIdx,
-      );
-      const maxIdx = Math.max(
-        activeHighlightDrag.startIdx,
-        activeHighlightDrag.endIdx,
-      );
-
-      linesData.forEach((line) => {
-        const overlapStart = Math.max(minIdx, line.startIdx);
-        const overlapEnd = Math.min(maxIdx, line.endIdx);
-
-        if (overlapStart < overlapEnd) {
-          const localStart = overlapStart - line.startIdx;
-          const localEnd = overlapEnd - line.startIdx;
-
-          const hx1 = line.charXPositions[localStart];
-          const hx2 = line.charXPositions[localEnd];
-
-          targetCtx.save();
-          targetCtx.globalAlpha = 1.0;
-          targetCtx.fillStyle = window.AppState.selectedHighlightColor;
-          targetCtx.fillRect(
-            hx1,
-            line.highlightTop,
-            hx2 - hx1,
-            line.highlightHeight,
-          );
-          targetCtx.restore();
-        }
-      });
+  // Active drag preview (per word, spaces skipped, matches the chosen tool)
+  if (
+    isHighlightMode &&
+    window.AppState.highlightTool !== "clear" &&
+    activeHighlightDrag &&
+    activeHighlightDrag.startIdx !== null &&
+    activeHighlightDrag.endIdx !== null
+  ) {
+    let minIdx = Math.min(activeHighlightDrag.startIdx, activeHighlightDrag.endIdx);
+    let maxIdx = Math.max(activeHighlightDrag.startIdx, activeHighlightDrag.endIdx);
+    if (minIdx === maxIdx && gestureWord) {
+      // finger hasn't moved: a tap would take the whole word
+      minIdx = gestureWord.startIdx;
+      maxIdx = gestureWord.wordEndIdx;
     }
-
-    // 3. Draw Lyrics Text (100% Opacity Everywhere Except Unactivated Words in Recording Mode)
-    const scaledFontSize = s.fontSize * scaleRatio;
-    targetCtx.font = `bold ${scaledFontSize}px ${s.fontFamily}`;
-    targetCtx.textBaseline = "alphabetic";
+    const previewUnderline = window.AppState.highlightTool === "underline";
 
     linesData.forEach((line) => {
-      targetCtx.textAlign = "left";
-
       line.wordRanges.forEach((wordObj) => {
-        const wordStartIdx = wordObj.startIdx;
-        const localCharIdx = wordStartIdx - line.startIdx;
-        const wordX = line.charXPositions[localCharIdx];
+        const overlapStart = Math.max(minIdx, wordObj.startIdx);
+        const overlapEnd = Math.min(maxIdx, wordObj.wordEndIdx);
+        if (overlapStart >= overlapEnd) return;
 
-        let wordAlpha = 1.0; // Default: Always 100% opacity for all text
-
-        if (isRecording) {
-          // Recording mode ONLY: Unactivated words = low opacity (40%), Activated = 100%
-          const isWordActivated = sessionRecordedWords.has(wordStartIdx);
-          wordAlpha = isWordActivated ? 1.0 : 0.4;
-        }
+        const hx1 = Math.round(line.charXPositions[overlapStart - line.startIdx]);
+        const hx2 = Math.round(line.charXPositions[overlapEnd - line.startIdx]);
 
         targetCtx.save();
-        targetCtx.globalAlpha = wordAlpha;
-        targetCtx.fillStyle = s.textColor;
-        targetCtx.fillText(wordObj.word, wordX, line.baselineY);
+        targetCtx.globalAlpha = 1.0;
+        targetCtx.fillStyle = window.AppState.selectedHighlightColor;
+        if (previewUnderline) {
+          targetCtx.fillRect(hx1, line.underlineTop, hx2 - hx1, line.underlineHeight);
+        } else {
+          targetCtx.fillRect(hx1, line.highlightTop, hx2 - hx1, line.highlightHeight);
+        }
         targetCtx.restore();
       });
     });
   }
+
+  // 3. Draw Lyrics Text
+  const scaledFontSize = s.fontSize * scaleRatio;
+  targetCtx.font = `bold ${scaledFontSize}px ${s.fontFamily}`;
+  targetCtx.textBaseline = "alphabetic";
+
+  linesData.forEach((line) => {
+    targetCtx.textAlign = "left";
+
+    line.wordRanges.forEach((wordObj) => {
+      const wordStartIdx = wordObj.startIdx;
+      const localCharIdx = wordStartIdx - line.startIdx;
+
+      const wordX = Math.round(line.charXPositions[localCharIdx]);
+      const drawY = Math.round(line.baselineY);
+
+      let wordAlpha = 1.0;
+
+      if (isRecording) {
+        const isWordActivated = sessionRecordedWords.has(wordStartIdx);
+        wordAlpha = isWordActivated ? 1.0 : 0.4;
+      }
+
+      targetCtx.save();
+      targetCtx.globalAlpha = wordAlpha;
+      targetCtx.fillStyle = s.textColor;
+      targetCtx.fillText(wordObj.word, wordX, drawY);
+      targetCtx.restore();
+    });
+  });
+}
 
   // --- RECORDING SWIPE & TIMING SYSTEM ---
   let sessionRecordedWords = new Set();
@@ -967,6 +1008,7 @@ if (btnImportProject && importFileInput) {
     highlightModeText.textContent = window.AppState.isHighlightMode
       ? "Highlighting Mode"
       : "Preview Mode";
+    updateToolUI();
     renderCanvas(
       ctx,
       canvas.width,
@@ -996,24 +1038,54 @@ if (btnImportProject && importFileInput) {
     startIdx: null,
     endIdx: null,
   };
+  let gestureMode = null; // "scroll" | "select" | "clear"
+  let clearChanged = false;
+  let clearUndoPushed = false;
+  let lastTouchTime = 0;
 
-  function getCharIdxFromCoords(clientX, clientY) {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+  // Tool buttons (Highlight / Underline / Clear)
+  const HINTS = {
+    highlight:
+      "🖍 <strong>Highlight</strong>: drag across words to highlight them, or tap a word to highlight all of it. Touch empty space and drag to scroll.",
+    underline:
+      "Underline: drag across words to underline them, or tap a word to underline all of it. Touch empty space and drag to scroll.",
+    clear:
+      "🧽 <strong>Clear</strong>: touch or drag over a highlight/underline to remove it. Touch empty space and drag to scroll.",
+  };
+  function updateToolUI() {
+    const tool = window.AppState.highlightTool;
+    const editing = window.AppState.isHighlightMode;
+    toolButtons.forEach((b) => {
+      b.classList.toggle("active", editing && b.dataset.tool === tool);
+      b.disabled = !editing; // tools only exist inside Highlighting Mode
+    });
+    if (highlightHint) {
+      highlightHint.innerHTML = editing
+        ? "💡 " + HINTS[tool]
+        : "👁 <strong>Preview Mode</strong>: highlights appear at their timings and you can scroll the canvas. Switch to Highlighting Mode to use Highlight, Underline or Clear.";
+    }
+  }
+  toolButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      window.AppState.highlightTool = btn.dataset.tool;
+      updateToolUI();
+    });
+  });
+  updateToolUI();
 
-    const canX = (clientX - rect.left) * scaleX;
-    const canY = (clientY - rect.top) * scaleY;
-
-    const currentTime = AudioManager.audio.currentTime || 0;
+  // Screen position -> canvas position + current layout
+  function getPointerLayout(clientX, clientY) {
     const proj = window.AppState.currentProject;
     if (!proj) return null;
+    const rect = canvas.getBoundingClientRect();
+    const canX = (clientX - rect.left) * (canvas.width / rect.width);
+    const canY = (clientY - rect.top) * (canvas.height / rect.height);
 
+    const currentTime = AudioManager.audio.currentTime || 0;
     const scaleRatio = canvas.width / window.APP_CONFIG.CANVAS_WIDTH;
-    const interpolatedScrollY =
-      getInterpolatedScrollY(currentTime) * scaleRatio;
     const totalScrollY =
-      interpolatedScrollY + window.AppState.manualScrollY * scaleRatio;
+      (getInterpolatedScrollY(currentTime) + window.AppState.manualScrollY) *
+      scaleRatio;
 
     const linesData = computeLyricsLayout(
       ctx,
@@ -1023,41 +1095,169 @@ if (btnImportProject && importFileInput) {
       proj.settings,
       scaleRatio,
     );
+    return { canX, canY, linesData, fontPx: proj.settings.fontSize * scaleRatio };
+  }
 
-    const forgivingPadding = 24 * scaleRatio;
-    const matchedLine = linesData.find((line) => {
-      return (
-        canY >= line.highlightTop - forgivingPadding &&
-        canY <= line.highlightBottom + forgivingPadding
-      );
-    });
-
-    if (!matchedLine) return null;
-
-    let closestCharIdx = 0;
+  function nearestLocalIdx(line, canX) {
+    let best = 0;
     let minDistance = Infinity;
-
-    matchedLine.charXPositions.forEach((xPos, idx) => {
+    line.charXPositions.forEach((xPos, idx) => {
       const dist = Math.abs(canX - xPos);
       if (dist < minDistance) {
         minDistance = dist;
-        closestCharIdx = idx;
+        best = idx;
       }
     });
+    return best;
+  }
 
-    return matchedLine.startIdx + closestCharIdx;
+  // The word under the finger (with a finger-sized margin), or null = empty space
+  function findWordAtPoint(p) {
+    const padX = p.fontPx * 0.25;
+    const padY = p.fontPx * 0.2;
+    let best = null;
+    let bestDist = Infinity;
+
+    p.linesData.forEach((line) => {
+      if (p.canY < line.highlightTop - padY || p.canY > line.highlightBottom + padY) return;
+      line.wordRanges.forEach((w) => {
+        if (w.wordEndIdx <= w.startIdx) return;
+        const x1 = line.charXPositions[w.startIdx - line.startIdx];
+        const x2 = line.charXPositions[w.wordEndIdx - line.startIdx];
+        if (p.canX < x1 - padX || p.canX > x2 + padX) return;
+        const d = Math.abs(p.canX - (x1 + x2) / 2);
+        if (d < bestDist) {
+          bestDist = d;
+          best = { line, word: w };
+        }
+      });
+    });
+    return best;
+  }
+
+  // While dragging a selection: nearest character on the nearest line
+  function charIdxNearPoint(p) {
+    const pad = p.fontPx * 0.35;
+    let bestLine = null;
+    let bestDist = Infinity;
+    p.linesData.forEach((line) => {
+      const d =
+        p.canY < line.highlightTop
+          ? line.highlightTop - p.canY
+          : p.canY > line.highlightBottom
+            ? p.canY - line.highlightBottom
+            : 0;
+      if (d <= pad && d < bestDist) {
+        bestDist = d;
+        bestLine = line;
+      }
+    });
+    if (!bestLine) return null;
+    return bestLine.startIdx + nearestLocalIdx(bestLine, p.canX);
+  }
+
+  // Highlights/underlines under the finger
+  function findAnnotationsAt(p) {
+    const padX = p.fontPx * 0.12;
+    const padY = p.fontPx * 0.15;
+    const hits = [];
+
+    window.AppState.highlights.forEach((hl) => {
+      let hit = false;
+      p.linesData.forEach((line) => {
+        if (hit) return;
+        const top = line.highlightTop - padY;
+        const bottom =
+          Math.max(line.highlightBottom, line.underlineTop + line.underlineHeight) + padY;
+        if (p.canY < top || p.canY > bottom) return;
+
+        line.wordRanges.forEach((w) => {
+          const oS = Math.max(hl.startIdx, w.startIdx);
+          const oE = Math.min(hl.endIdx, w.wordEndIdx);
+          if (oS >= oE) return;
+          const x1 = line.charXPositions[oS - line.startIdx];
+          const x2 = line.charXPositions[oE - line.startIdx];
+          if (p.canX >= x1 - padX && p.canX <= x2 + padX) hit = true;
+        });
+      });
+      if (hit) hits.push(hl);
+    });
+    return hits;
+  }
+
+  function removeAnnotationsAt(p) {
+    const hits = findAnnotationsAt(p);
+    if (hits.length === 0) return;
+    if (!clearUndoPushed) {
+      pushHighlightState(); // one undo step per swipe
+      clearUndoPushed = true;
+    }
+    window.AppState.highlights = window.AppState.highlights.filter(
+      (h) => !hits.includes(h),
+    );
+    clearChanged = true;
+    renderCanvas(ctx, canvas.width, canvas.height, AudioManager.audio.currentTime || 0);
+  }
+
+  // Add one highlight/underline per word inside [a, b) - never over spaces
+  function addAnnotations(a, b) {
+    const segs = wordSegments(lyricsInput.value, a, b);
+    if (segs.length === 0) return;
+
+    const type = window.AppState.highlightTool === "underline" ? "underline" : "highlight";
+    const now = Date.now();
+    const t = AudioManager.audio.currentTime || 0;
+
+    pushHighlightState();
+    segs.forEach(([sIdx, eIdx], i) => {
+      // re-marking the exact same range replaces it (e.g. new color)
+      window.AppState.highlights = window.AppState.highlights.filter(
+        (h) =>
+          !((h.type || "highlight") === type && h.startIdx === sIdx && h.endIdx === eIdx),
+      );
+      window.AppState.highlights.push({
+        id: "hl_" + now + "_" + i,
+        type,
+        startIdx: sIdx,
+        endIdx: eIdx,
+        color: window.AppState.selectedHighlightColor,
+        timestamp: t,
+      });
+    });
+    triggerSave();
   }
 
   function onDragStart(clientX, clientY) {
     isDragging = true;
     startY = clientY;
+    gestureMode = "scroll"; // default: empty space scrolls
+    gestureWord = null;
+    clearChanged = false;
+    clearUndoPushed = false;
+    activeHighlightDrag = { startIdx: null, endIdx: null };
 
-    if (window.AppState.isHighlightMode) {
-      const snappedIdx = getCharIdxFromCoords(clientX, clientY);
-      if (snappedIdx !== null) {
-        activeHighlightDrag.startIdx = snappedIdx;
-        activeHighlightDrag.endIdx = snappedIdx;
-      }
+    if (!window.AppState.isHighlightMode) return;
+
+    const p = getPointerLayout(clientX, clientY);
+    if (!p) return;
+    const hit = findWordAtPoint(p);
+    if (!hit) return; // touched empty space -> scroll
+
+    if (window.AppState.highlightTool === "clear") {
+      gestureMode = "clear";
+      removeAnnotationsAt(p);
+    } else {
+      gestureMode = "select";
+      gestureWord = hit.word;
+      const idx = Math.min(
+        hit.word.wordEndIdx,
+        Math.max(
+          hit.word.startIdx,
+          hit.line.startIdx + nearestLocalIdx(hit.line, p.canX),
+        ),
+      );
+      activeHighlightDrag = { startIdx: idx, endIdx: idx };
+      renderCanvas(ctx, canvas.width, canvas.height, AudioManager.audio.currentTime || 0);
     }
   }
 
@@ -1065,15 +1265,18 @@ if (btnImportProject && importFileInput) {
     if (!isDragging) return;
     const currentTime = AudioManager.audio.currentTime || 0;
 
-    if (window.AppState.isHighlightMode) {
-      if (activeHighlightDrag.startIdx !== null) {
-        const snappedIdx = getCharIdxFromCoords(clientX, clientY);
-        if (snappedIdx !== null) {
-          activeHighlightDrag.endIdx = snappedIdx;
-          renderCanvas(ctx, canvas.width, canvas.height, currentTime);
-        }
+    if (gestureMode === "select") {
+      const p = getPointerLayout(clientX, clientY);
+      const idx = p ? charIdxNearPoint(p) : null;
+      if (idx !== null) {
+        activeHighlightDrag.endIdx = idx;
+        renderCanvas(ctx, canvas.width, canvas.height, currentTime);
       }
+    } else if (gestureMode === "clear") {
+      const p = getPointerLayout(clientX, clientY);
+      if (p) removeAnnotationsAt(p);
     } else {
+      // scroll (preview mode, or empty space in edit mode)
       const deltaY = clientY - startY;
       startY = clientY;
 
@@ -1081,14 +1284,9 @@ if (btnImportProject && importFileInput) {
       const scaleFactor = window.APP_CONFIG.CANVAS_HEIGHT / rect.height;
       const scaledDeltaY = deltaY * scaleFactor;
 
-      if (window.AppState.isFreeRoam) {
-        window.AppState.manualScrollY += scaledDeltaY;
-      } else {
-        const currentScrollY =
-          getInterpolatedScrollY(currentTime) + scaledDeltaY;
-        window.AppState.manualScrollY = 0;
-        setKeyframeAtTime(currentTime, currentScrollY);
-      }
+      // Free move: only changes the temporary offset. A keyframe is
+      // created/updated only when the Add/Update Keyframe button is pressed.
+      window.AppState.manualScrollY += scaledDeltaY;
 
       renderCanvas(ctx, canvas.width, canvas.height, currentTime);
       updateKfUI();
@@ -1096,58 +1294,65 @@ if (btnImportProject && importFileInput) {
   }
 
   function onDragEnd() {
-    if (isDragging && window.AppState.isHighlightMode) {
-      if (
-        activeHighlightDrag.startIdx !== null &&
-        activeHighlightDrag.endIdx !== null
-      ) {
-        const minIdx = Math.min(
-          activeHighlightDrag.startIdx,
-          activeHighlightDrag.endIdx,
-        );
-        const maxIdx = Math.max(
-          activeHighlightDrag.startIdx,
-          activeHighlightDrag.endIdx,
-        );
+    if (!isDragging) return;
 
-        if (maxIdx > minIdx) {
-          pushHighlightState();
-
-          window.AppState.highlights.push({
-            id: "hl_" + Date.now(),
-            startIdx: minIdx,
-            endIdx: maxIdx,
-            color: window.AppState.selectedHighlightColor,
-            timestamp: AudioManager.audio.currentTime || 0,
-          });
-
-          triggerSave();
-        }
+    if (gestureMode === "select" && activeHighlightDrag.startIdx !== null) {
+      let a = Math.min(activeHighlightDrag.startIdx, activeHighlightDrag.endIdx);
+      let b = Math.max(activeHighlightDrag.startIdx, activeHighlightDrag.endIdx);
+      if (a === b && gestureWord) {
+        // a tap (no drag) takes the whole word
+        a = gestureWord.startIdx;
+        b = gestureWord.wordEndIdx;
       }
-      activeHighlightDrag = { startIdx: null, endIdx: null };
-      renderCanvas(
-        ctx,
-        canvas.width,
-        canvas.height,
-        AudioManager.audio.currentTime || 0,
-      );
+      addAnnotations(a, b);
+    } else if (gestureMode === "clear" && clearChanged) {
+      triggerSave();
     }
+
+    activeHighlightDrag = { startIdx: null, endIdx: null };
+    gestureWord = null;
+    gestureMode = null;
     isDragging = false;
+    renderCanvas(ctx, canvas.width, canvas.height, AudioManager.audio.currentTime || 0);
   }
 
-  canvasWrapper.addEventListener("mousedown", (e) =>
-    onDragStart(e.clientX, e.clientY),
-  );
-  window.addEventListener("mousemove", (e) => onDragMove(e.clientX, e.clientY));
-  window.addEventListener("mouseup", onDragEnd);
+  // Touch also fires emulated mouse events; ignore those so a tap isn't applied twice
+  const recentTouch = () => Date.now() - lastTouchTime < 700;
 
-  canvasWrapper.addEventListener("touchstart", (e) =>
-    onDragStart(e.touches[0].clientX, e.touches[0].clientY),
+  canvasWrapper.addEventListener("mousedown", (e) => {
+    if (recentTouch()) return;
+    onDragStart(e.clientX, e.clientY);
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (recentTouch()) return;
+    onDragMove(e.clientX, e.clientY);
+  });
+  window.addEventListener("mouseup", () => {
+    if (recentTouch()) return;
+    onDragEnd();
+  });
+
+  canvasWrapper.addEventListener(
+    "touchstart",
+    (e) => {
+      lastTouchTime = Date.now();
+      if (e.cancelable) e.preventDefault();
+      onDragStart(e.touches[0].clientX, e.touches[0].clientY);
+    },
+    { passive: false },
   );
-  window.addEventListener("touchmove", (e) =>
-    onDragMove(e.touches[0].clientX, e.touches[0].clientY),
-  );
-  window.addEventListener("touchend", onDragEnd);
+  window.addEventListener("touchmove", (e) => {
+    lastTouchTime = Date.now();
+    onDragMove(e.touches[0].clientX, e.touches[0].clientY);
+  });
+  window.addEventListener("touchend", () => {
+    lastTouchTime = Date.now();
+    onDragEnd();
+  });
+  window.addEventListener("touchcancel", () => {
+    lastTouchTime = Date.now();
+    onDragEnd();
+  });
 
   // --- AUDIO & TIMELINE EVENTS ---
   function onAudioTimeUpdate() {
@@ -1211,16 +1416,18 @@ if (btnImportProject && importFileInput) {
     }
   });
 
-  skipBack5.addEventListener("click", () => AudioManager.skip(-5));
-  skipBack1.addEventListener("click", () => AudioManager.skip(-1));
-  skipFwd1.addEventListener("click", () => AudioManager.skip(1));
-  skipFwd5.addEventListener("click", () => AudioManager.skip(5));
+  const skipBy = (sec) => {
+    window.AppState.manualScrollY = 0;
+    AudioManager.skip(sec);
+  };
+  skipBack5.addEventListener("click", () => skipBy(-5));
+  skipBack1.addEventListener("click", () => skipBy(-1));
+  skipFwd1.addEventListener("click", () => skipBy(1));
+  skipFwd5.addEventListener("click", () => skipBy(5));
 
   timelineScrubber.addEventListener("input", () => {
     AudioManager.seekRelativePercent(timelineScrubber.value);
-    if (!window.AppState.isFreeRoam) {
-      window.AppState.manualScrollY = 0;
-    }
+    window.AppState.manualScrollY = 0;
     onAudioTimeUpdate();
   });
 
@@ -1243,50 +1450,96 @@ if (btnImportProject && importFileInput) {
   trimStartInput.addEventListener("input", onTrimChange);
   trimEndInput.addEventListener("input", onTrimChange);
 
-  toggleFreeRoam.addEventListener("change", () => {
-    window.AppState.isFreeRoam = toggleFreeRoam.checked;
-    if (!window.AppState.isFreeRoam) {
-      window.AppState.manualScrollY = 0;
-      renderCanvas(
-        ctx,
-        canvas.width,
-        canvas.height,
-        AudioManager.audio.currentTime || 0,
-      );
-    }
-  });
+  // --- KEYFRAME EDITING (history, add/update, delete, jump) ---
+  function cloneKeyframes() {
+    return JSON.parse(JSON.stringify(window.AppState.keyframes));
+  }
+
+  function resetKfHistory() {
+    kfHistory.undo = [];
+    kfHistory.redo = [];
+  }
+
+  // Call right BEFORE changing keyframes
+  function pushKfHistory() {
+    kfHistory.undo.push(cloneKeyframes());
+    if (kfHistory.undo.length > KF_HISTORY_LIMIT) kfHistory.undo.shift();
+    kfHistory.redo = [];
+  }
+
+  function afterKfChange() {
+    window.AppState.manualScrollY = 0;
+    triggerSave();
+    updateKfUI();
+    renderCanvas(
+      ctx,
+      canvas.width,
+      canvas.height,
+      AudioManager.audio.currentTime || 0,
+    );
+  }
+
+  function undoKf() {
+    if (kfHistory.undo.length === 0) return;
+    kfHistory.redo.push(cloneKeyframes());
+    window.AppState.keyframes = kfHistory.undo.pop();
+    afterKfChange();
+  }
+
+  function redoKf() {
+    if (kfHistory.redo.length === 0) return;
+    kfHistory.undo.push(cloneKeyframes());
+    window.AppState.keyframes = kfHistory.redo.pop();
+    afterKfChange();
+  }
+
+  btnUndoKf.addEventListener("click", undoKf);
+  btnRedoKf.addEventListener("click", redoKf);
+
+  // Tap a diamond under the timeline: pause, jump to it, ready to edit
+  function jumpToKeyframe(time) {
+    AudioManager.pause();
+    stopPlaybackLoop();
+    btnPlay.textContent = "▶";
+    window.AppState.manualScrollY = 0;
+    AudioManager.audio.currentTime = time;
+    onAudioTimeUpdate();
+  }
 
   btnDelKf.addEventListener("click", () => {
     const currentTime = AudioManager.audio.currentTime || 0;
+    if (findKfIndexAt(currentTime) === -1) return;
+    pushKfHistory();
     window.AppState.keyframes = window.AppState.keyframes.filter(
-      (kf) => Math.abs(kf.time - currentTime) >= 0.15,
+      (kf) => Math.abs(kf.time - currentTime) >= KF_EPS,
     );
-    updateKfUI();
-    renderCanvas(ctx, canvas.width, canvas.height, currentTime);
-    triggerSave();
+    afterKfChange();
   });
 
-  // Around Line 520 - Add Keyframe Button Listener
+  // Add a keyframe here, or update the one at this time, using the
+  // current visual position (interpolated scroll + your free move).
   if (btnAddKf) {
     btnAddKf.addEventListener("click", () => {
       const currentTime = AudioManager.audio.currentTime || 0;
-      const scaleRatio = canvas.width / window.APP_CONFIG.CANVAS_WIDTH;
-      const currentScrollY =
-        getInterpolatedScrollY(currentTime) +
-        window.AppState.manualScrollY * scaleRatio;
-
-      setKeyframeAtTime(currentTime, currentScrollY);
-      window.AppState.manualScrollY = 0; // Reset manual offset to snap into the keyframe
-      updateKfUI();
-      renderCanvas(ctx, canvas.width, canvas.height, currentTime);
+      const targetScrollY =
+        getInterpolatedScrollY(currentTime) + window.AppState.manualScrollY;
+      setKeyframeAtTime(currentTime, targetScrollY);
+      afterKfChange();
     });
   }
 
   function setKeyframeAtTime(time, targetScrollY) {
     const kfs = window.AppState.keyframes;
-    const existingIndex = kfs.findIndex(
-      (kf) => Math.abs(kf.time - time) < 0.12,
-    );
+    const existingIndex = findKfIndexAt(time);
+
+    if (
+      existingIndex !== -1 &&
+      Math.abs(kfs[existingIndex].scrollY - targetScrollY) < 0.01
+    ) {
+      return; // nothing changed, don't pollute undo history
+    }
+
+    pushKfHistory();
 
     if (existingIndex !== -1) {
       kfs[existingIndex].scrollY = targetScrollY;
@@ -1299,7 +1552,6 @@ if (btnImportProject && importFileInput) {
     }
 
     kfs.sort((a, b) => a.time - b.time);
-    triggerSave();
   }
 
   // --- EXPORT LOGIC ---
@@ -1443,7 +1695,210 @@ if (btnImportProject && importFileInput) {
 
   btnBack.addEventListener("click", showDashboard);
 
+  // =====================================================================
+  // KEEP HIGHLIGHTS & WORD TIMINGS ATTACHED TO THE TEXT THEY BELONG TO
+  // Highlights/timings are stored as character positions in the lyrics.
+  // When the text changes, every stored position is moved to match.
+  // =====================================================================
+
+  // Work out what changed: { start, oldEnd, newEnd, insLen, delta, inserted, oldText }
+  // The cursor position disambiguates repeated characters (e.g. typing "a" in "aaa").
+  function computeTextEdit(oldT, newT, cursor) {
+    const oldLen = oldT.length;
+    const newLen = newT.length;
+    let start = 0, oldEnd = 0, newEnd = 0, found = false;
+
+    if (typeof cursor === "number" && cursor >= 0 && cursor <= newLen) {
+      const oe = oldLen - (newLen - cursor);
+      if (oe >= 0 && oe <= oldLen && oldT.slice(oe) === newT.slice(cursor)) {
+        let p = 0;
+        const maxP = Math.min(oe, cursor);
+        while (p < maxP && oldT[p] === newT[p]) p++;
+        start = p;
+        oldEnd = oe;
+        newEnd = cursor;
+        found = true;
+      }
+    }
+
+    if (!found) {
+      let p = 0;
+      const minLen = Math.min(oldLen, newLen);
+      while (p < minLen && oldT[p] === newT[p]) p++;
+      let sfx = 0;
+      while (
+        sfx < minLen - p &&
+        oldT[oldLen - 1 - sfx] === newT[newLen - 1 - sfx]
+      ) sfx++;
+      start = p;
+      oldEnd = oldLen - sfx;
+      newEnd = newLen - sfx;
+    }
+
+    return {
+      start,
+      oldEnd,
+      newEnd,
+      insLen: newEnd - start,
+      delta: newLen - oldLen,
+      inserted: newT.slice(start, newEnd),
+      oldText: oldT,
+    };
+  }
+
+  // Generic position mapper. assoc: +1 sticks to the right of an insertion, -1 to the left
+  function mapIdx(pos, e, assoc) {
+    if (pos < e.start) return pos;
+    if (pos > e.oldEnd) return pos + e.delta;
+    if (e.start === e.oldEnd) return assoc > 0 ? pos + e.delta : pos; // pure insertion
+    if (pos === e.start) return e.start;
+    if (pos === e.oldEnd) return e.newEnd;
+    return assoc > 0 ? e.newEnd : e.start; // inside the removed/replaced text
+  }
+
+  // Typing a letter right next to a highlighted word joins that word, so it stays highlighted
+  function mapHighlightStart(pos, e) {
+    if (e.start === e.oldEnd && pos === e.start) {
+      const joins =
+        e.inserted.length > 0 &&
+        !/\s/.test(e.inserted) &&
+        pos < e.oldText.length &&
+        !/\s/.test(e.oldText[pos]);
+      return joins ? pos : pos + e.delta;
+    }
+    return mapIdx(pos, e, 1);
+  }
+
+  function mapHighlightEnd(pos, e) {
+    if (e.start === e.oldEnd && pos === e.start) {
+      const joins =
+        e.inserted.length > 0 &&
+        !/\s/.test(e.inserted) &&
+        pos > 0 &&
+        !/\s/.test(e.oldText[pos - 1]);
+      return joins ? pos + e.delta : pos;
+    }
+    return mapIdx(pos, e, -1);
+  }
+
+  function remapHighlights(list, e, newLen) {
+    const out = [];
+    (list || []).forEach((hl) => {
+      const s = Math.max(0, mapHighlightStart(hl.startIdx, e));
+      const en = Math.min(newLen, mapHighlightEnd(hl.endIdx, e));
+      if (en > s) out.push({ ...hl, startIdx: s, endIdx: en });
+    });
+    return out;
+  }
+
+  // wordTimings is { wordStartIndex: seconds }
+  function mapTimingKey(pos, e) {
+    if (pos < e.start) return pos;
+    if (pos >= e.oldEnd) {
+      if (e.start === e.oldEnd && pos === e.start) {
+        // New word(s) typed right before this word push it forward;
+        // a letter typed at its start just edits the word.
+        return /\s$/.test(e.inserted) ? pos + e.delta : pos;
+      }
+      return pos + e.delta;
+    }
+    // Word start was inside the changed text
+    if (pos === e.start && e.insLen > 0) return pos; // word typed over keeps its timing
+    return null; // that word was deleted
+  }
+
+  function remapWordTimings(timings, e, newText) {
+    const out = {};
+    Object.keys(timings || {}).forEach((k) => {
+      const t = timings[k];
+      if (typeof t !== "number") return;
+      const nk = mapTimingKey(parseInt(k, 10), e);
+      if (nk === null || nk < 0 || nk > newText.length) return;
+      // only keep keys that are still at the start of a word
+      const atWordStart =
+        nk === 0 || newText[nk - 1] === " " || newText[nk - 1] === "\n";
+      if (atWordStart && !(nk in out)) out[nk] = t;
+    });
+    return out;
+  }
+
+  // Non-space runs inside [a, b): one entry per word piece
+  function wordSegments(text, a, b) {
+    const segs = [];
+    const end = Math.min(b, text.length);
+    let i = Math.max(0, a);
+    while (i < end) {
+      while (i < end && /\s/.test(text[i])) i++;
+      let j = i;
+      while (j < end && !/\s/.test(text[j])) j++;
+      if (j > i) segs.push([i, j]);
+      i = j;
+    }
+    return segs;
+  }
+
+  // Make sure no highlight/underline covers a space or two words.
+  // Anything that does is split into one per word.
+  function normalizeAnnotations(list, text) {
+    const out = [];
+    (list || []).forEach((hl) => {
+      const type = hl.type || "highlight";
+      const segs = wordSegments(text, hl.startIdx, hl.endIdx);
+      if (
+        segs.length === 1 &&
+        segs[0][0] === hl.startIdx &&
+        segs[0][1] === hl.endIdx
+      ) {
+        out.push({ ...hl, type });
+        return;
+      }
+      segs.forEach(([a, b], i) => {
+        out.push({
+          ...hl,
+          type,
+          id: (hl.id || "hl") + "_" + i,
+          startIdx: a,
+          endIdx: b,
+        });
+      });
+    });
+    return out;
+  }
+
+  function applyLyricsEdit(e, newText) {
+    const st = window.AppState;
+    st.highlights = normalizeAnnotations(
+      remapHighlights(st.highlights, e, newText.length),
+      newText,
+    );
+    st.wordTimings = remapWordTimings(st.wordTimings, e, newText);
+
+    // Highlight undo/redo snapshots must follow the text too, otherwise
+    // undoing after an edit would bring back stale positions.
+    const remapStack = (stack) =>
+      (stack || []).map((str) =>
+        JSON.stringify(
+          normalizeAnnotations(
+            remapHighlights(JSON.parse(str), e, newText.length),
+            newText,
+          ),
+        ),
+      );
+    st.undoStack = remapStack(st.undoStack);
+    st.redoStack = remapStack(st.redoStack);
+  }
+
   lyricsInput.addEventListener("input", () => {
+    const newText = lyricsInput.value;
+    if (newText !== lastLyricsText) {
+      const edit = computeTextEdit(
+        lastLyricsText,
+        newText,
+        lyricsInput.selectionStart,
+      );
+      applyLyricsEdit(edit, newText);
+      lastLyricsText = newText;
+    }
     renderCanvas(
       ctx,
       canvas.width,

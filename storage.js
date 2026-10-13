@@ -1,4 +1,19 @@
 // storage.js
+
+// wordTimings is a map { wordStartIndex: seconds }. Older saves stored it as a
+// (sparse) array, and the old loader threw away any object-shaped value, so
+// timings were lost on reload. Always normalize to a plain object.
+function normalizeWordTimings(wt) {
+  const out = {};
+  if (wt && typeof wt === 'object') {
+    Object.keys(wt).forEach(k => {
+      const v = wt[k];
+      if (typeof v === 'number' && isFinite(v)) out[k] = v;
+    });
+  }
+  return out;
+}
+
 const StorageManager = {
   getProjects() {
     const data = localStorage.getItem(window.APP_CONFIG.STORAGE_KEY);
@@ -10,7 +25,7 @@ const StorageManager = {
         ...proj,
         keyframes: Array.isArray(proj.keyframes) ? proj.keyframes : [{ id: 'kf_0', time: 0, scrollY: 0 }],
         timings: Array.isArray(proj.timings) ? proj.timings : [],
-        wordTimings: Array.isArray(proj.wordTimings) ? proj.wordTimings : [],
+        wordTimings: normalizeWordTimings(proj.wordTimings),
         recordingModeData: proj.recordingModeData || null
       }));
     } catch (e) {
@@ -41,7 +56,7 @@ const StorageManager = {
         { id: 'kf_0', time: 0, scrollY: 0 }
       ],
       timings: [],             // Line/section timings
-      wordTimings: [],         // Individual word-level timings
+      wordTimings: {},         // Individual word-level timings { startIndex: seconds }
       recordingModeData: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -69,7 +84,7 @@ const StorageManager = {
   saveRecordingTimings(id, timings = [], wordTimings = []) {
     return this.updateProject(id, {
       timings: Array.isArray(timings) ? timings : [],
-      wordTimings: Array.isArray(wordTimings) ? wordTimings : []
+      wordTimings: normalizeWordTimings(wordTimings)
     });
   },
 

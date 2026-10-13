@@ -51,7 +51,196 @@ const ExportManager = {
     return 'video/webm';
   },
 
-  exportVideo(options, project, renderFunction, onProgress, onComplete, onError) {
+  // ---------------------------------------------------------------
+  // NEW: WebCodecs + mp4-muxer exporter
+  // Frame-by-frame (not real-time), constant frame rate, real duration
+  // in the file header, AAC audio muxed in. Opens in CapCut / Alight.
+  // ---------------------------------------------------------------
+  cancelled: false,
+
+  supportsWebCodecs() {
+    return typeof VideoEncoder !== 'undefined' &&
+           typeof VideoFrame !== 'undefined' &&
+           typeof window.Mp4Muxer !== 'undefined';
+  },
+
+  async pickVideoCodec(width, height, fps, bitrate) {
+    const candidates = ['avc1.64002A', 'avc1.640028', 'avc1.4D0028', 'avc1.42E028', 'avc1.42E01F'];
+    for (const codec of candidates) {
+      try {
+        const cfg = { codec, width, height, bitrate, framerate: fps, avc: { format: 'avc' } };
+        const res = await VideoEncoder.isConfigSupported(cfg);
+        if (res.supported) return cfg;
+      } catch (e) { /* try next */ }
+    }
+    return null;
+  },
+
+  async pickAudioConfig(sampleRate, channels) {
+    if (typeof AudioEncoder === 'undefined' || typeof AudioData === 'undefined') return null;
+    const cfg = { codec: 'mp4a.40.2', sampleRate, numberOfChannels: channels, bitrate: 128000 };
+    try {
+      const res = await AudioEncoder.isConfigSupported(cfg);
+      return res.supported ? cfg : null;
+    } catch (e) { return null; }
+  },
+
+  async exportVideo(options, project, renderFunction, onProgress, onComplete, onError) {
+    if (this.isExporting) return;
+
+    // Fall back to the old MediaRecorder path if WebCodecs / muxer is missing
+    if (!this.supportsWebCodecs()) {
+      return this.exportVideoLegacy(options, project, renderFunction, onProgress, onComplete, onError);
+    }
+
+    this.isExporting = true;
+    this.cancelled = false;
+
+    let videoEncoder = null, audioEncoder = null;
+    try {
+      const fps = parseInt(options.fps, 10) || 30;
+      const dims = this.getResolutionDimensions(options.resolution);
+      const bitrate = dims.width >= 1920 ? 8_000_000 : dims.width >= 1280 ? 5_000_000 : 2_500_000;
+      const timeInfo = this.getExportDuration(project);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = dims.width;
+      canvas.height = dims.height;
+      const ctx = canvas.getContext('2d', { alpha: false });
+
+      const videoCfg = await this.pickVideoCodec(dims.width, dims.height, fps, bitrate);
+      if (!videoCfg) throw new Error('This device cannot encode H.264 video. Try a lower resolution.');
+
+      // Audio (optional: skipped if the device can't encode AAC)
+      const buf = AudioManager.rawAudioBuffer;
+      const channels = buf ? Math.min(2, buf.numberOfChannels) : 0;
+      const audioCfg = buf ? await this.pickAudioConfig(buf.sampleRate, channels) : null;
+
+      const { Muxer, ArrayBufferTarget } = window.Mp4Muxer;
+      const muxer = new Muxer({
+        target: new ArrayBufferTarget(),
+        video: { codec: 'avc', width: dims.width, height: dims.height, frameRate: fps },
+        ...(audioCfg ? { audio: { codec: 'aac', numberOfChannels: channels, sampleRate: buf.sampleRate } } : {}),
+        fastStart: 'in-memory',            // moov atom at the start: editors need this
+        firstTimestampBehavior: 'offset'
+      });
+
+      let encoderError = null;
+      videoEncoder = new VideoEncoder({
+        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+        error: (e) => { encoderError = e; }
+      });
+      videoEncoder.configure(videoCfg);
+
+      if (audioCfg) {
+        audioEncoder = new AudioEncoder({
+          output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+          error: (e) => { encoderError = e; }
+        });
+        audioEncoder.configure(audioCfg);
+      }
+
+      // ---- VIDEO: deterministic frame loop ----
+      const totalFrames = Math.max(1, Math.round(timeInfo.duration * fps));
+      const frameDurUs = 1e6 / fps;
+      const keyEvery = fps * 2;
+
+      for (let i = 0; i < totalFrames; i++) {
+        if (this.cancelled) throw new Error('__cancelled__');
+        if (encoderError) throw encoderError;
+
+        const t = timeInfo.start + i / fps;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, dims.width, dims.height);
+        renderFunction(ctx, dims.width, dims.height, t, true);
+
+        const frame = new VideoFrame(canvas, {
+          timestamp: Math.round(i * frameDurUs),
+          duration: Math.round(frameDurUs)
+        });
+        videoEncoder.encode(frame, { keyFrame: i % keyEvery === 0 });
+        frame.close();
+
+        // Backpressure so phones don't run out of memory
+        while (videoEncoder.encodeQueueSize > 6) {
+          await new Promise(r => setTimeout(r, 4));
+        }
+        // Let the UI repaint the progress bar
+        if (i % 5 === 0) {
+          if (onProgress) onProgress((i / totalFrames) * (audioCfg ? 92 : 98));
+          await new Promise(r => setTimeout(r, 0));
+        }
+      }
+      await videoEncoder.flush();
+
+      // ---- AUDIO ----
+      if (audioCfg) {
+        const sr = buf.sampleRate;
+        const startSample = Math.floor(timeInfo.start * sr);
+        const endSample = Math.min(buf.length, startSample + Math.round(timeInfo.duration * sr));
+        const CHUNK = 4096;
+        const chData = [];
+        for (let c = 0; c < channels; c++) chData.push(buf.getChannelData(c));
+
+        for (let pos = startSample; pos < endSample; pos += CHUNK) {
+          if (this.cancelled) throw new Error('__cancelled__');
+          if (encoderError) throw encoderError;
+
+          const n = Math.min(CHUNK, endSample - pos);
+          const planar = new Float32Array(n * channels);
+          for (let c = 0; c < channels; c++) {
+            planar.set(chData[c].subarray(pos, pos + n), c * n);
+          }
+          const ad = new AudioData({
+            format: 'f32-planar',
+            sampleRate: sr,
+            numberOfFrames: n,
+            numberOfChannels: channels,
+            timestamp: Math.round(((pos - startSample) / sr) * 1e6),
+            data: planar
+          });
+          audioEncoder.encode(ad);
+          ad.close();
+
+          while (audioEncoder.encodeQueueSize > 20) {
+            await new Promise(r => setTimeout(r, 4));
+          }
+        }
+        await audioEncoder.flush();
+      }
+
+      if (encoderError) throw encoderError;
+      muxer.finalize();
+
+      const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(project.title || 'video').replace(/\s+/g, '_')}_${options.resolution}_${fps}fps.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+      if (onProgress) onProgress(100);
+      if (!audioCfg) {
+        alert('Note: this device cannot encode AAC audio, so the MP4 has no sound. Export the WAV and add it in your editor.');
+      }
+      this.isExporting = false;
+      if (onComplete) onComplete();
+    } catch (err) {
+      this.isExporting = false;
+      if (err && err.message === '__cancelled__') return;
+      console.error(err);
+      if (onError) onError((err && err.message) || 'Export failed.');
+    } finally {
+      try { if (videoEncoder && videoEncoder.state !== 'closed') videoEncoder.close(); } catch (e) {}
+      try { if (audioEncoder && audioEncoder.state !== 'closed') audioEncoder.close(); } catch (e) {}
+    }
+  },
+
+  // Old real-time MediaRecorder exporter (fallback only)
+  exportVideoLegacy(options, project, renderFunction, onProgress, onComplete, onError) {
     if (this.isExporting) return;
     this.isExporting = true;
 
@@ -223,6 +412,7 @@ const ExportManager = {
   },
 
   cancelExport() {
+    this.cancelled = true;
     if (this.isExporting) {
       this.isExporting = false;
       if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {

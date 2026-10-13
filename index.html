@@ -72,11 +72,8 @@
 
         <!-- Keyframe Actions -->
         <div class="keyframe-actions">
-          <label class="free-roam-toggle">
-            <input type="checkbox" id="toggle-free-roam">
-            <span class="toggle-slider"></span>
-            <span class="toggle-label">Free Roam</span>
-          </label>
+          <button id="btn-undo-kf" class="btn secondary kf-btn" title="Undo keyframe change" disabled>↶</button>
+          <button id="btn-redo-kf" class="btn secondary kf-btn" title="Redo keyframe change" disabled>↷</button>
 
           <button id="btn-add-kf" class="btn secondary">+ Add Keyframe</button>
           <button id="btn-del-kf" class="btn danger-btn kf-btn">- Delete KF</button>
@@ -121,9 +118,16 @@
             </div>
           </div>
 
+          <!-- Tool selector -->
+          <div class="tool-selector">
+            <button class="tool-btn active" data-tool="highlight">🖍 Highlight</button>
+            <button class="tool-btn" data-tool="underline"><u>U</u>nderline</button>
+            <button class="tool-btn" data-tool="clear">🧽 Clear</button>
+          </div>
+
           <!-- Expanded Color Palette Picker -->
           <div class="color-palette-section">
-            <span class="palette-label">Select Highlight Color (Light / Normal / Dark):</span>
+            <span class="palette-label">Color (used for highlight and underline):</span>
             <div class="color-swatches-grid">
               <!-- Hot Pink Group -->
               <button class="swatch" data-color="#FF66B2" style="background: #FF66B2;" title="Light Pink"></button>
@@ -155,13 +159,18 @@
               <button class="swatch" data-color="#A0A0A0" style="background: #A0A0A0;" title="Light Gray"></button>
               <button class="swatch" data-color="#505050" style="background: #505050;" title="Dark Gray"></button>
 
+              <!-- New hues -->
+              <button class="swatch" data-color="#E60000" style="background: #E60000;" title="Red"></button>
+              <button class="swatch" data-color="#9D4EDD" style="background: #9D4EDD;" title="Purple"></button>
+              <button class="swatch" data-color="#2962FF" style="background: #2962FF;" title="Blue"></button>
+              <button class="swatch" data-color="#8B5A2B" style="background: #8B5A2B;" title="Brown"></button>
+              <button class="swatch" data-color="#000000" style="background: #000000;" title="Black"></button>
+
               <input type="color" id="custom-hl-color" class="custom-color-picker" value="#FF007F" title="Custom Color">
             </div>
           </div>
 
-          <p class="highlight-instructions">
-            💡 <strong>Highlighting Mode</strong>: Drag across text directly on the preview canvas to highlight.
-          </p>
+          <p class="highlight-instructions" id="highlight-instructions"></p>
         </div>
 
         <!-- RECORDING TAB -->
