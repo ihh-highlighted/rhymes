@@ -44,32 +44,60 @@ const AudioManager = {
     }
   },
 
-  loadAudio(file, savedTrimStart = 0, savedTrimEnd = 0, callback) {
+  loadAudio(file, savedTrimStart = 0, savedTrimEnd = 0, callback, onError) {
     this.audioFile = file;
+    this.rawAudioBuffer = null; // never export the previous song's audio
+
+    if (this._objectUrl) URL.revokeObjectURL(this._objectUrl);
     const url = URL.createObjectURL(file);
-    this.audio.src = url;
-    this.audio.load();
+    this._objectUrl = url;
 
-    // Decode buffer for audio export
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      const ctx = new AudioCtx();
-      ctx.decodeAudioData(e.target.result, (buf) => {
-        this.rawAudioBuffer = buf;
-      });
-    };
-    reader.readAsArrayBuffer(file);
+    this.audio.pause();
+    this.isPlaying = false;
 
+    // handlers first, then the source (so no event can be missed)
     this.audio.onloadedmetadata = () => {
       this.trimStart = savedTrimStart || 0;
-      this.trimEnd = (savedTrimEnd > 0 && savedTrimEnd <= this.audio.duration) 
-        ? savedTrimEnd 
+      this.trimEnd = (savedTrimEnd > 0 && savedTrimEnd <= this.audio.duration)
+        ? savedTrimEnd
         : this.audio.duration;
 
       this.audio.currentTime = this.trimStart;
       if (callback) callback(this.audio.duration, this.trimStart, this.trimEnd);
     };
+    this.audio.onerror = () => {
+      if (onError) onError();
+    };
+
+    this.audio.src = url;
+    this.audio.load();
+
+    // Decode a copy for audio export. One short-lived context per file, then closed
+    // (phones only allow a handful of live AudioContexts).
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      let ctx;
+      try {
+        ctx = new AudioCtx();
+        ctx.decodeAudioData(
+          e.target.result,
+          (buf) => {
+            this.rawAudioBuffer = buf;
+            if (ctx.close) ctx.close();
+          },
+          (err) => {
+            console.warn('Could not decode audio for export:', err);
+            if (ctx.close) ctx.close();
+          },
+        );
+      } catch (err) {
+        console.warn('Audio decode unavailable:', err);
+        if (ctx && ctx.close) ctx.close();
+      }
+    };
+    reader.readAsArrayBuffer(file);
   },
 
   play() {

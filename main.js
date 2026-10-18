@@ -1,5 +1,29 @@
 // main.js
 document.addEventListener("DOMContentLoaded", () => {
+  // If the browser served an old cached index.html / styles.js next to a newer
+  // main.js, reload once automatically instead of leaving a half-started app.
+  if (
+    typeof StyleKit === "undefined" ||
+    !document.getElementById("setting-line-gap")
+  ) {
+    let tried = false;
+    try {
+      tried = sessionStorage.getItem("assets-reloaded") === "1";
+      sessionStorage.setItem("assets-reloaded", "1");
+    } catch (e) {}
+    if (!tried) {
+      location.reload();
+    } else {
+      alert(
+        "Some app files are out of date in your browser cache. Clear this site's cache (or start the app with serve.py) and reload.",
+      );
+    }
+    return;
+  }
+  try {
+    sessionStorage.removeItem("assets-reloaded");
+  } catch (e) {}
+
   // DOM Elements
   const dashboardScreen = document.getElementById("dashboard-screen");
   const editorScreen = document.getElementById("editor-screen");
@@ -25,6 +49,29 @@ document.addEventListener("DOMContentLoaded", () => {
   const settingTextColor = document.getElementById("setting-text-color");
   const settingBgColor = document.getElementById("setting-bg-color");
   const settingAlign = document.getElementById("setting-align");
+  const settingLineGap = document.getElementById("setting-line-gap");
+  const settingTextStyle = document.getElementById("setting-text-style");
+  const settingTextDepth = document.getElementById("setting-text-depth");
+  const settingHlStyle = document.getElementById("setting-hl-style");
+  const settingBgImageEffect = document.getElementById("setting-bg-image-effect");
+  const settingBgBlur = document.getElementById("setting-bg-blur");
+  const settingBgDim = document.getElementById("setting-bg-dim");
+  const bgCustomColor = document.getElementById("bg-custom-color");
+  const bgImageInput = document.getElementById("bg-image-input");
+  const btnBgImagePick = document.getElementById("btn-bg-image-pick");
+  const btnBgImageRemove = document.getElementById("btn-bg-image-remove");
+  const bgImageControls = document.getElementById("bg-image-controls");
+  const bgGrid = document.getElementById("bg-grid");
+  const textStyleGrid = document.getElementById("text-style-grid");
+  const hlStyleGrid = document.getElementById("hl-style-grid");
+  const valLineGap = document.getElementById("val-line-gap");
+  const valTextDepth = document.getElementById("val-text-depth");
+  const valBgBlur = document.getElementById("val-bg-blur");
+  const valBgDim = document.getElementById("val-bg-dim");
+
+  // Background photo (stored compressed inside the project)
+  let currentBgImage = "";
+  let lastFontValue = null;
 
   const valFontSize = document.getElementById("val-font-size");
   const valMarginLeft = document.getElementById("val-margin-left");
@@ -176,6 +223,9 @@ if (btnImportProject && importFileInput) {
     project.highlights = normalizeAnnotations(project.highlights, project.lyrics || "");
     if (!project.wordTimings) project.wordTimings = {};
 
+    // Older projects don't have the newer style options yet
+    project.settings = { ...StyleKit.DEFAULTS, ...project.settings };
+
     window.AppState.currentProject = project;
     window.AppState.keyframes = project.keyframes;
     window.AppState.highlights = project.highlights;
@@ -202,6 +252,22 @@ if (btnImportProject && importFileInput) {
     settingTextColor.value = project.settings.textColor;
     settingBgColor.value = project.settings.bgColor;
     settingAlign.value = project.settings.textAlign;
+    settingLineGap.value = project.settings.lineHeight;
+    settingTextStyle.value = project.settings.textStyle;
+    settingTextDepth.value = project.settings.textDepth;
+    settingHlStyle.value = project.settings.hlStyle;
+    settingBgImageEffect.value = project.settings.bgImageEffect;
+    settingBgBlur.value = project.settings.bgBlur;
+    settingBgDim.value = project.settings.bgDim;
+    currentBgImage = project.settings.bgImage || "";
+    lastFontValue = project.settings.fontFamily;
+    renderBgThumbs();
+    renderTextThumbs();
+    refreshStyleUI();
+    StyleKit.ensureFont(project.settings).then(() => {
+      renderTextThumbs();
+      requestRerender();
+    });
 
     valFontSize.textContent = project.settings.fontSize;
     valMarginLeft.textContent = project.settings.marginLeftPercent;
@@ -224,19 +290,22 @@ if (btnImportProject && importFileInput) {
 
     if (window.AppState.projects.length === 0) {
       projectList.innerHTML =
-        '<p style="color: #888; text-align: center; margin-top: 20px;">No projects created yet.</p>';
+        '<div class="empty-state"><strong>No projects yet</strong>Tap “New project” to make your first rhyme video.</div>';
       return;
     }
 
     window.AppState.projects.forEach((project) => {
       const card = document.createElement("div");
       card.className = "project-card";
+      let hue = 0;
+      for (const ch of String(project.id)) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
       card.innerHTML = `
-      <div>
+      <div class="card-thumb" style="--h:${hue}"><span>Aa</span></div>
+      <div class="card-info">
         <h3>${escapeHtml(project.title)}</h3>
-        <p style="font-size: 12px; color: #888; margin-top: 4px;">${new Date(project.updatedAt).toLocaleDateString()}</p>
+        <p class="card-date">${new Date(project.updatedAt).toLocaleDateString()}</p>
       </div>
-      <div style="display: flex; gap: 6px;">
+      <div class="card-actions">
         <button class="btn secondary export-btn" data-id="${project.id}">Export</button>
         <button class="btn danger delete-btn" data-id="${project.id}">Delete</button>
       </div>
@@ -343,7 +412,7 @@ function computeLyricsLayout(
   if (!rawText.trim()) return [];
 
   const scaledFontSize = s.fontSize * scaleRatio;
-  targetCtx.font = `bold ${scaledFontSize}px ${s.fontFamily}`;
+  targetCtx.font = StyleKit.fontString(s, scaledFontSize);
 
   const leftX = width * (s.marginLeftPercent / 100);
   const rightX = width * (1 - s.marginRightPercent / 100);
@@ -477,19 +546,20 @@ function renderCanvas(
   const s = proj.settings;
   const scaleRatio = width / window.APP_CONFIG.CANVAS_WIDTH;
 
-  // 1. Draw Background
-  if (s.bgColor === "genius-gradient") {
-    const bgGradient = targetCtx.createLinearGradient(0, 0, 0, height);
-    bgGradient.addColorStop(0.0, "#333639");
-    bgGradient.addColorStop(0.2, "#a8abaf");
-    bgGradient.addColorStop(0.5, "#e8eaed");
-    bgGradient.addColorStop(0.8, "#a8abaf");
-    bgGradient.addColorStop(1.0, "#333639");
-    targetCtx.fillStyle = bgGradient;
-  } else {
-    targetCtx.fillStyle = s.bgColor;
-  }
+  // 0. Known-good drawing state + opaque base, so a frame can never smear
+  //    over the previous one even if something below fails or leaks state.
+  targetCtx.setTransform(1, 0, 0, 1, 0, 0);
+  targetCtx.globalAlpha = 1;
+  targetCtx.globalCompositeOperation = "source-over";
+  targetCtx.shadowColor = "transparent";
+  targetCtx.shadowBlur = 0;
+  targetCtx.shadowOffsetX = 0;
+  targetCtx.shadowOffsetY = 0;
+  targetCtx.fillStyle = "#101010";
   targetCtx.fillRect(0, 0, width, height);
+
+  // 1. Draw Background (presets, textures, glass, your image)
+  StyleKit.drawBackground(targetCtx, width, height, s, requestRerender);
 
   if (!lyricsInput.value.trim()) return;
 
@@ -618,25 +688,16 @@ function renderCanvas(
             const hx1 = Math.round(line.charXPositions[localStart]);
             const hx2 = Math.round(line.charXPositions[localEnd]);
 
-            targetCtx.save();
-            targetCtx.globalAlpha = 1.0;
-            targetCtx.fillStyle = hl.color;
-            if (hl.type === "underline") {
-              targetCtx.fillRect(
-                hx1,
-                line.underlineTop,
-                hx2 - hx1,
-                line.underlineHeight,
-              );
-            } else {
-              targetCtx.fillRect(
-                hx1,
-                line.highlightTop,
-                hx2 - hx1,
-                line.highlightHeight,
-              );
-            }
-            targetCtx.restore();
+            StyleKit.drawAnnotation(
+              targetCtx,
+              hl.type,
+              hl.color,
+              hx1,
+              hx2,
+              line,
+              s.hlStyle,
+              hl.startIdx * 977 + overlapStart * 31 + overlapEnd,
+            );
           }
         }
       });
@@ -669,22 +730,23 @@ function renderCanvas(
         const hx1 = Math.round(line.charXPositions[overlapStart - line.startIdx]);
         const hx2 = Math.round(line.charXPositions[overlapEnd - line.startIdx]);
 
-        targetCtx.save();
-        targetCtx.globalAlpha = 1.0;
-        targetCtx.fillStyle = window.AppState.selectedHighlightColor;
-        if (previewUnderline) {
-          targetCtx.fillRect(hx1, line.underlineTop, hx2 - hx1, line.underlineHeight);
-        } else {
-          targetCtx.fillRect(hx1, line.highlightTop, hx2 - hx1, line.highlightHeight);
-        }
-        targetCtx.restore();
+        StyleKit.drawAnnotation(
+          targetCtx,
+          previewUnderline ? "underline" : "highlight",
+          window.AppState.selectedHighlightColor,
+          hx1,
+          hx2,
+          line,
+          s.hlStyle,
+          overlapStart * 977 + overlapEnd * 31,
+        );
       });
     });
   }
 
   // 3. Draw Lyrics Text
   const scaledFontSize = s.fontSize * scaleRatio;
-  targetCtx.font = `bold ${scaledFontSize}px ${s.fontFamily}`;
+  targetCtx.font = StyleKit.fontString(s, scaledFontSize);
   targetCtx.textBaseline = "alphabetic";
 
   linesData.forEach((line) => {
@@ -706,8 +768,16 @@ function renderCanvas(
 
       targetCtx.save();
       targetCtx.globalAlpha = wordAlpha;
-      targetCtx.fillStyle = s.textColor;
-      targetCtx.fillText(wordObj.word, wordX, drawY);
+      StyleKit.drawText(
+        targetCtx,
+        wordObj.word,
+        wordX,
+        drawY,
+        s.textStyle,
+        s.textColor,
+        scaledFontSize,
+        s.textDepth,
+      );
       targetCtx.restore();
     });
   });
@@ -756,7 +826,7 @@ function renderCanvas(
     window.AppState.isRecording = true;
     sessionRecordedWords.clear();
 
-    btnToggleRecord.textContent = "⏹ Stop Recording";
+    btnToggleRecord.textContent = "■ Stop recording";
     btnToggleRecord.classList.add("recording");
     recordStatus.textContent = "Recording word timings...";
     swipeInstruction.textContent = "SWIPE HERE →";
@@ -815,7 +885,7 @@ function renderCanvas(
 
   function stopRecording() {
     window.AppState.isRecording = false;
-    btnToggleRecord.textContent = "🔴 Start Recording";
+    btnToggleRecord.textContent = "● Start recording";
     btnToggleRecord.classList.remove("recording");
     recordStatus.textContent = "Recording saved!";
     swipeInstruction.textContent = 'Press "Start Recording" to begin';
@@ -1046,11 +1116,11 @@ function renderCanvas(
   // Tool buttons (Highlight / Underline / Clear)
   const HINTS = {
     highlight:
-      "🖍 <strong>Highlight</strong>: drag across words to highlight them, or tap a word to highlight all of it. Touch empty space and drag to scroll.",
+      "<strong>Highlight</strong>: drag across words to highlight them, or tap a word to highlight all of it. Touch empty space and drag to scroll.",
     underline:
-      "Underline: drag across words to underline them, or tap a word to underline all of it. Touch empty space and drag to scroll.",
+      "<strong>Underline</strong>: drag across words to underline them, or tap a word to underline all of it. Touch empty space and drag to scroll.",
     clear:
-      "🧽 <strong>Clear</strong>: touch or drag over a highlight/underline to remove it. Touch empty space and drag to scroll.",
+      "<strong>Clear</strong>: touch or drag over a highlight/underline to remove it. Touch empty space and drag to scroll.",
   };
   function updateToolUI() {
     const tool = window.AppState.highlightTool;
@@ -1061,8 +1131,8 @@ function renderCanvas(
     });
     if (highlightHint) {
       highlightHint.innerHTML = editing
-        ? "💡 " + HINTS[tool]
-        : "👁 <strong>Preview Mode</strong>: highlights appear at their timings and you can scroll the canvas. Switch to Highlighting Mode to use Highlight, Underline or Clear.";
+        ? HINTS[tool]
+        : "<strong>Preview mode</strong>: highlights appear at their timings and you can scroll the canvas. Switch to Highlighting Mode to use Highlight, Underline or Clear.";
     }
   }
   toolButtons.forEach((btn) => {
@@ -1372,38 +1442,49 @@ function renderCanvas(
   }
 
   audioUpload.addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const proj = window.AppState.currentProject;
-      AudioManager.loadAudio(
-        file,
-        proj.trimStart,
-        proj.trimEnd,
-        (dur, start, end) => {
-          btnPlay.disabled = false;
-          timelineScrubber.disabled = false;
-          [
-            skipBack5,
-            skipBack1,
-            skipFwd1,
-            skipFwd5,
-            trimStartInput,
-            trimEndInput,
-          ].forEach((b) => (b.disabled = false));
+    const file = e.target.files && e.target.files[0];
+    audioUpload.value = ""; // lets you pick the same file again later
+    if (!file) return;
 
-          trimStartInput.max = dur;
-          trimEndInput.max = dur;
-
-          trimStartInput.value = start;
-          trimEndInput.value = end;
-
-          valTrimStart.textContent = AudioManager.formatTime(start);
-          valTrimEnd.textContent = AudioManager.formatTime(end);
-
-          onAudioTimeUpdate();
-        },
-      );
+    const proj = window.AppState.currentProject;
+    if (!proj) {
+      alert("Open a project first, then add the song.");
+      return;
     }
+
+    AudioManager.loadAudio(
+      file,
+      proj.trimStart,
+      proj.trimEnd,
+      (dur, start, end) => {
+        btnPlay.disabled = false;
+        timelineScrubber.disabled = false;
+        [
+          skipBack5,
+          skipBack1,
+          skipFwd1,
+          skipFwd5,
+          trimStartInput,
+          trimEndInput,
+        ].forEach((b) => (b.disabled = false));
+
+        trimStartInput.max = dur;
+        trimEndInput.max = dur;
+
+        trimStartInput.value = start;
+        trimEndInput.value = end;
+
+        valTrimStart.textContent = AudioManager.formatTime(start);
+        valTrimEnd.textContent = AudioManager.formatTime(end);
+
+        onAudioTimeUpdate();
+      },
+      () => {
+        alert(
+          "This browser couldn't open that audio file. Try an MP3, WAV or M4A.",
+        );
+      },
+    );
   });
 
   btnPlay.addEventListener("click", () => {
@@ -1591,7 +1672,6 @@ function renderCanvas(
       window.AppState.currentProject,
       (targetCtx, w, h, time) => renderCanvas(targetCtx, w, h, time, true),
       (progress) => {
-        exportStatusText.textContent = `Exporting Video (${exportResolution.value} @ ${exportFps.value}fps)...`;
         exportPercent.textContent = `${Math.floor(progress)}%`;
         exportProgressFill.style.width = `${progress}%`;
       },
@@ -1604,6 +1684,9 @@ function renderCanvas(
         exportProgressContainer.style.display = "none";
         btnStartExport.disabled = false;
         alert("Export error: " + err);
+      },
+      (msg) => {
+        exportStatusText.textContent = msg;
       },
     );
   });
@@ -1624,7 +1707,14 @@ function renderCanvas(
       textColor: settingTextColor.value,
       bgColor: settingBgColor.value,
       textAlign: settingAlign.value,
-      lineHeight: 1.4,
+      lineHeight: parseFloat(settingLineGap.value) || 1.4,
+      textStyle: settingTextStyle.value,
+      textDepth: parseInt(settingTextDepth.value, 10),
+      bgImage: currentBgImage,
+      bgImageEffect: settingBgImageEffect.value,
+      bgBlur: parseInt(settingBgBlur.value, 10),
+      bgDim: parseInt(settingBgDim.value, 10),
+      hlStyle: settingHlStyle.value,
     };
   }
 
@@ -1655,13 +1745,66 @@ function renderCanvas(
     }
   }
 
-  function onSettingsChange() {
+  function requestRerender() {
+    renderCanvas(
+      ctx,
+      canvas.width,
+      canvas.height,
+      AudioManager.audio.currentTime || 0,
+    );
+  }
+
+  // --- STYLE TAB UI ---
+  function renderBgThumbs() {
+    StyleKit.renderChipThumbs(bgGrid, StyleKit.BG_PRESETS, (cv, item) =>
+      StyleKit.drawBgThumb(cv, item, { imageSrc: currentBgImage }),
+    );
+  }
+  function renderTextThumbs() {
+    const st = { fontFamily: settingFont.value };
+    StyleKit.renderChipThumbs(textStyleGrid, StyleKit.TEXT_STYLES, (cv, item) =>
+      StyleKit.drawTextThumb(cv, item, st),
+    );
+  }
+  function renderHlThumbs() {
+    StyleKit.renderChipThumbs(hlStyleGrid, StyleKit.HL_STYLES, (cv, item) =>
+      StyleKit.drawHlThumb(cv, item),
+    );
+  }
+  function refreshStyleUI() {
     valFontSize.textContent = settingFontSize.value;
     valMarginLeft.textContent = settingMarginLeft.value;
     valMarginRight.textContent = settingMarginRight.value;
+    valLineGap.textContent = (+settingLineGap.value).toFixed(2);
+    valTextDepth.textContent = settingTextDepth.value;
+    valBgBlur.textContent = settingBgBlur.value;
+    valBgDim.textContent = settingBgDim.value;
+
+    StyleKit.setActiveChip(bgGrid, settingBgColor.value);
+    StyleKit.setActiveChip(textStyleGrid, settingTextStyle.value);
+    StyleKit.setActiveChip(hlStyleGrid, settingHlStyle.value);
+
+    bgImageControls.style.display =
+      settingBgColor.value === "image" ? "block" : "none";
+    if (/^#[0-9a-f]{6}$/i.test(settingBgColor.value)) {
+      bgCustomColor.value = settingBgColor.value;
+    }
+  }
+
+  function onSettingsChange() {
+    refreshStyleUI();
 
     if (window.AppState.currentProject) {
       window.AppState.currentProject.settings = getSettingsFromUI();
+    }
+
+    // a different font needs to finish loading before it can be drawn
+    if (settingFont.value !== lastFontValue) {
+      lastFontValue = settingFont.value;
+      StyleKit.ensureFont({ fontFamily: settingFont.value }).then(() => {
+        renderTextThumbs();
+        requestRerender();
+      });
     }
 
     renderCanvas(
@@ -1918,9 +2061,81 @@ function renderCanvas(
     settingTextColor,
     settingBgColor,
     settingAlign,
+    settingLineGap,
+    settingTextDepth,
+    settingBgImageEffect,
+    settingBgBlur,
+    settingBgDim,
   ].forEach((input) => {
     input.addEventListener("input", onSettingsChange);
   });
+
+  // --- Style pickers (visual chips) ---
+  try {
+    const gfLink = document.createElement("link");
+    gfLink.rel = "stylesheet";
+    gfLink.href = StyleKit.GOOGLE_FONTS_URL;
+    gfLink.onload = () => {
+      StyleKit.ensureFont({ fontFamily: settingFont.value }).then(() => {
+        renderTextThumbs();
+        requestRerender();
+      });
+    };
+    document.head.appendChild(gfLink);
+
+    StyleKit.populateFontSelect(settingFont);
+
+    StyleKit.buildChipGrid(bgGrid, StyleKit.BG_PRESETS, (item) => {
+      if (item.id === "image" && !currentBgImage) {
+        bgImageInput.click(); // nothing picked yet: choose a photo first
+        return;
+      }
+      settingBgColor.value = item.id;
+      onSettingsChange();
+    });
+    StyleKit.buildChipGrid(textStyleGrid, StyleKit.TEXT_STYLES, (item) => {
+      settingTextStyle.value = item.id;
+      onSettingsChange();
+    });
+    StyleKit.buildChipGrid(hlStyleGrid, StyleKit.HL_STYLES, (item) => {
+      settingHlStyle.value = item.id;
+      onSettingsChange();
+    });
+    renderBgThumbs();
+    renderTextThumbs();
+    renderHlThumbs();
+
+    bgCustomColor.addEventListener("input", () => {
+      settingBgColor.value = bgCustomColor.value;
+      onSettingsChange();
+    });
+
+    btnBgImagePick.addEventListener("click", () => bgImageInput.click());
+    bgImageInput.addEventListener("change", async () => {
+      const file = bgImageInput.files && bgImageInput.files[0];
+      if (!file) return;
+      try {
+        currentBgImage = await StyleKit.fileToDataURL(file, 1600, 0.82);
+      } catch (err) {
+        alert("Couldn't read that image. Try a JPG or PNG.");
+        bgImageInput.value = "";
+        return;
+      }
+      bgImageInput.value = "";
+      settingBgColor.value = "image";
+      renderBgThumbs();
+      onSettingsChange();
+    });
+    btnBgImageRemove.addEventListener("click", () => {
+      currentBgImage = "";
+      settingBgColor.value = "matte-black";
+      renderBgThumbs();
+      onSettingsChange();
+    });
+
+  } catch (err) {
+    console.error("Style tab failed to initialise:", err);
+  }
 
   function escapeHtml(str) {
     return str
@@ -1929,29 +2144,43 @@ function renderCanvas(
       .replace(/>/g, "&gt;");
   }
 
-  showDashboard();
-});
 
-// --- IMPORT PROJECT HANDLERS ---
-if (btnImportProject && importFileInput) {
-  // Trigger file browser when Import button is clicked
-  btnImportProject.addEventListener("click", () => {
-    importFileInput.click();
-  });
+  // --- UI polish: filled sliders + keyboard shortcuts (desktop) ---
+  const paintRanges = () => {
+    document.querySelectorAll('input[type="range"]').forEach((r) => {
+      const min = parseFloat(r.min) || 0;
+      const max = parseFloat(r.max) || 100;
+      const val = parseFloat(r.value) || 0;
+      const p = max > min ? ((val - min) / (max - min)) * 100 : 0;
+      const txt = p.toFixed(1) + "%";
+      if (r.style.getPropertyValue("--p") !== txt) r.style.setProperty("--p", txt);
+    });
+  };
+  setInterval(paintRanges, 100);
+  paintRanges();
 
-  // Handle file selection
-  importFileInput.addEventListener("change", async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  document.addEventListener("keydown", (e) => {
+    if (!editorScreen.classList.contains("active")) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const el = document.activeElement;
+    const typing =
+      el &&
+      (el.tagName === "TEXTAREA" ||
+        el.tagName === "SELECT" ||
+        (el.tagName === "INPUT" && el.type !== "range" && el.type !== "checkbox"));
+    if (typing) return;
 
-    try {
-      const importedProj = await StorageManager.importProject(file);
-      alert(`Project "${importedProj.title}" imported successfully!`);
-      importFileInput.value = ""; // Reset input
-      renderProjectList(); // Refresh project list to show the imported project
-    } catch (err) {
-      alert("Failed to import project: Invalid JSON file.");
-      console.error(err);
+    if (e.code === "Space") {
+      e.preventDefault();
+      if (!btnPlay.disabled) btnPlay.click();
+    } else if (e.code === "ArrowLeft" || e.code === "ArrowRight") {
+      if (btnPlay.disabled) return;
+      e.preventDefault();
+      const sec = (e.shiftKey ? 5 : 1) * (e.code === "ArrowLeft" ? -1 : 1);
+      window.AppState.manualScrollY = 0;
+      AudioManager.skip(sec);
     }
   });
-}
+
+  showDashboard();
+});

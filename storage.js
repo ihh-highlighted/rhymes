@@ -21,6 +21,7 @@ const StorageManager = {
 
     try {
       const projects = JSON.parse(data);
+      if (!Array.isArray(projects)) throw new Error('projects is not a list');
       return projects.map(proj => ({
         ...proj,
         keyframes: Array.isArray(proj.keyframes) ? proj.keyframes : [{ id: 'kf_0', time: 0, scrollY: 0 }],
@@ -30,6 +31,10 @@ const StorageManager = {
       }));
     } catch (e) {
       console.error('Failed to parse projects from localStorage:', e);
+      // keep a copy so a bad read can never silently wipe your work
+      try {
+        localStorage.setItem(window.APP_CONFIG.STORAGE_KEY + '_corrupt_backup', data);
+      } catch (err) { /* storage full: nothing more we can do */ }
       return [];
     }
   },
@@ -40,7 +45,17 @@ const StorageManager = {
   },
 
   saveProjects(projects) {
-    localStorage.setItem(window.APP_CONFIG.STORAGE_KEY, JSON.stringify(projects));
+    try {
+      localStorage.setItem(window.APP_CONFIG.STORAGE_KEY, JSON.stringify(projects));
+      return true;
+    } catch (err) {
+      console.error('Could not save projects:', err);
+      if (!this._quotaWarned) {
+        this._quotaWarned = true;
+        alert('Browser storage is full, so your latest changes were NOT saved. Try a smaller background image, remove the background image, or delete old projects.');
+      }
+      return false;
+    }
   },
 
   createProject(title) {

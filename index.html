@@ -4,8 +4,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Genius Rhymes Video Maker</title>
-  <link rel="stylesheet" href="style.css">
+  <meta name="theme-color" content="#111116">
+  <title>Rhyme Studio</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffd60a'/%3E%3Cstop offset='.6' stop-color='%23ff8a00'/%3E%3Cstop offset='1' stop-color='%23ff3d71'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css?v=20261017">
 </head>
 
 <body>
@@ -14,14 +16,18 @@
   <div id="dashboard-screen" class="screen active">
     <header class="top-bar">
       <h2>Rhyme Studio</h2>
-      <button id="btn-new-project" class="btn primary">+ New</button>
       <!-- Import Controls -->
-      <button id="btn-import-project" class="btn secondary-btn">📥 Import Project</button>
+      <button id="btn-import-project" class="btn secondary-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg><span>Import</span></button>
+      <button id="btn-new-project" class="btn primary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New project</span></button>
       <!-- Styled with zero opacity instead of display:none to ensure browser compatibility -->
       <input type="file" id="import-file-input" accept=".json"
         style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;" />
     </header>
     <main class="dashboard-content">
+      <div class="page-head">
+        <h1>Your projects</h1>
+        <p>Pick up where you left off, or start a new rhyme video.</p>
+      </div>
       <div id="project-list" class="project-grid"></div>
     </main>
   </div>
@@ -29,7 +35,7 @@
   <!-- EDITOR SCREEN -->
   <div id="editor-screen" class="screen">
     <header class="top-bar">
-      <button id="btn-back" class="btn icon-btn">←</button>
+      <button id="btn-back" class="btn icon-btn" title="Back to projects"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
       <input type="text" id="project-title-input" class="title-input" value="Untitled Project" />
       <span class="status-indicator" id="save-status">Saved</span>
     </header>
@@ -44,52 +50,51 @@
 
       <!-- Timeline & Audio Bar -->
       <section class="timeline-bar">
-        <!-- Audio Controls Row -->
         <div class="audio-controls-row">
-          <label for="audio-upload" class="btn secondary-btn">🎵 Audio</label>
+          <label for="audio-upload" class="btn secondary-btn audio-btn" title="Add or change the song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Audio</span></label>
           <input type="file" id="audio-upload" accept="audio/*" hidden />
 
           <div class="skip-btn-group">
-            <button id="skip-back-5" class="btn skip-btn" disabled>-5s</button>
-            <button id="skip-back-1" class="btn skip-btn" disabled>-1s</button>
-            <button id="btn-play" class="btn primary-btn" disabled>▶</button>
-            <button id="skip-fwd-1" class="btn skip-btn" disabled>+1s</button>
-            <button id="skip-fwd-5" class="btn skip-btn" disabled>+5s</button>
+            <button id="skip-back-5" class="btn skip-btn" title="Back 5 seconds" disabled>-5s</button>
+            <button id="skip-back-1" class="btn skip-btn" title="Back 1 second" disabled>-1s</button>
+            <button id="btn-play" class="btn primary-btn" title="Play / pause (Space)" disabled>▶</button>
+            <button id="skip-fwd-1" class="btn skip-btn" title="Forward 1 second" disabled>+1s</button>
+            <button id="skip-fwd-5" class="btn skip-btn" title="Forward 5 seconds" disabled>+5s</button>
           </div>
 
-          <span id="time-display" class="time-display">00:00 / 00:00</span>
+          <button id="fullscreenBtn" class="btn icon-btn" title="Full screen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
         </div>
-        <button id="fullscreenBtn" class="btn icon-btn" title="Full Screen">⛶</button>
-        <!-- Scrubber Track -->
+
         <div class="scrubber-container">
+          <span id="time-display" class="time-display">00:00 / 00:00</span>
           <input type="range" id="timeline-scrubber" min="0" max="100" value="0" step="0.01" disabled>
         </div>
 
-        <!-- Keyframe Bar -->
         <div class="keyframe-bar-wrapper">
-          <div id="keyframe-bar" class="keyframe-bar"></div>
+          <div id="keyframe-bar" class="keyframe-bar" title="Keyframes: tap one to jump to it"></div>
         </div>
 
-        <!-- Keyframe Actions -->
         <div class="keyframe-actions">
-          <button id="btn-undo-kf" class="btn secondary kf-btn" title="Undo keyframe change" disabled>↶</button>
-          <button id="btn-redo-kf" class="btn secondary kf-btn" title="Redo keyframe change" disabled>↷</button>
+          <button id="btn-undo-kf" class="btn secondary kf-btn" title="Undo keyframe change" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg></button>
+          <button id="btn-redo-kf" class="btn secondary kf-btn" title="Redo keyframe change" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg></button>
 
           <button id="btn-add-kf" class="btn secondary">+ Add Keyframe</button>
           <button id="btn-del-kf" class="btn danger-btn kf-btn">- Delete KF</button>
           <span id="kf-status" class="kf-status">No KF at current time</span>
         </div>
+
+        <div class="kbd-hint"><kbd>Space</kbd> play / pause &nbsp;·&nbsp; <kbd>←</kbd> <kbd>→</kbd> seek 1s &nbsp;·&nbsp; <kbd>Shift</kbd> + arrows seek 5s</div>
       </section>
 
       <!-- Bottom Tabs & Controls -->
       <section class="controls-container">
         <nav class="tab-bar">
-          <button class="tab-btn active" data-tab="tab-lyrics">Lyrics</button>
-          <button class="tab-btn" data-tab="tab-highlight">🖍 Highlight</button>
-          <button class="tab-btn" data-tab="tab-record">🎙 Record</button>
-          <button class="tab-btn" data-tab="tab-trim">✂ Trim Audio</button>
-          <button class="tab-btn" data-tab="tab-settings">⚙ Style</button>
-          <button class="tab-btn" data-tab="tab-export">📹 Export</button>
+          <button class="tab-btn active" data-tab="tab-lyrics"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h14"/></svg>Lyrics</button>
+          <button class="tab-btn" data-tab="tab-highlight"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>Highlight</button>
+          <button class="tab-btn" data-tab="tab-record"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>Record</button>
+          <button class="tab-btn" data-tab="tab-trim"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></svg>Trim</button>
+          <button class="tab-btn" data-tab="tab-settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13.5" cy="6.5" r=".6"/><circle cx="17.5" cy="10.5" r=".6"/><circle cx="8.5" cy="7.5" r=".6"/><circle cx="6.5" cy="12.5" r=".6"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>Style</button>
+          <button class="tab-btn" data-tab="tab-export"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>Export</button>
         </nav>
 
         <!-- Lyrics Tab -->
@@ -102,7 +107,7 @@
           <div class="highlight-controls-bar">
             <!-- Mode Toggle Switch -->
             <div class="mode-toggle-group">
-              <span class="mode-label">Mode:</span>
+              <span class="mode-label">Mode</span>
               <label class="free-roam-toggle">
                 <input type="checkbox" id="toggle-highlight-mode">
                 <span class="toggle-slider"></span>
@@ -112,22 +117,22 @@
 
             <!-- Undo / Redo & Clear -->
             <div class="undo-redo-group">
-              <button id="btn-undo-hl" class="btn secondary-btn action-btn">↩ Undo</button>
-              <button id="btn-redo-hl" class="btn secondary-btn action-btn">↪ Redo</button>
-              <button id="btn-clear-hl" class="btn danger-btn action-btn">🗑 Clear All</button>
+              <button id="btn-undo-hl" class="btn secondary-btn action-btn">Undo</button>
+              <button id="btn-redo-hl" class="btn secondary-btn action-btn">Redo</button>
+              <button id="btn-clear-hl" class="btn danger-btn action-btn">Clear all</button>
             </div>
           </div>
 
           <!-- Tool selector -->
           <div class="tool-selector">
-            <button class="tool-btn active" data-tool="highlight">🖍 Highlight</button>
+            <button class="tool-btn active" data-tool="highlight">Highlight</button>
             <button class="tool-btn" data-tool="underline"><u>U</u>nderline</button>
-            <button class="tool-btn" data-tool="clear">🧽 Clear</button>
+            <button class="tool-btn" data-tool="clear">Clear</button>
           </div>
 
           <!-- Expanded Color Palette Picker -->
           <div class="color-palette-section">
-            <span class="palette-label">Color (used for highlight and underline):</span>
+            <span class="palette-label">Color for highlights and underlines</span>
             <div class="color-swatches-grid">
               <!-- Hot Pink Group -->
               <button class="swatch" data-color="#FF66B2" style="background: #FF66B2;" title="Light Pink"></button>
@@ -176,8 +181,8 @@
         <!-- RECORDING TAB -->
         <div id="tab-record" class="tab-content">
           <div class="record-header">
-            <button id="btn-toggle-record" class="btn record-btn">🔴 Start Recording</button>
-            <button id="btn-reset-record" class="btn secondary-btn">↺ Reset Timings</button>
+            <button id="btn-toggle-record" class="btn record-btn">● Start recording</button>
+            <button id="btn-reset-record" class="btn secondary-btn">Reset timings</button>
             <span id="record-status" class="record-status-text">Ready to record</span>
           </div>
 
@@ -185,7 +190,7 @@
           <div id="swipe-area" class="swipe-area">
             <div id="swipe-track-fill" class="swipe-track-fill"></div>
             <div class="swipe-prompt">
-              <span class="swipe-icon">👉</span>
+              <span class="swipe-icon"><svg viewBox="0 0 24 24" aria-hidden="true" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 17 5-5-5-5"/><path d="m6 17 5-5-5-5"/></svg></span>
               <p id="swipe-instruction">Press "Start Recording" to begin</p>
               <small id="swipe-subtext">Swipe across this area to trigger word timings</small>
             </div>
@@ -209,22 +214,37 @@
         <!-- Style Settings Tab -->
         <div id="tab-settings" class="tab-content">
           <div class="settings-form">
+
+            <h4 class="style-title">Text</h4>
+
             <div class="form-group">
-              <label for="setting-font">Font Family</label>
-              <select id="setting-font" class="input-control">
-                <option value="Impact, sans-serif">Impact (Genius Style)</option>
-                <option value="Arial, sans-serif">Arial Bold</option>
-                <option value="'Courier New', monospace">Courier Monospace</option>
-                <option value="Georgia, serif">Georgia Serif</option>
-                <option value="jost, serif">Jost</option>
-                <option value="futura, serif">futura</option>
-              </select>
+              <label for="setting-font">Font</label>
+              <select id="setting-font" class="input-control"></select>
             </div>
 
             <div class="form-group">
               <label for="setting-font-size">Font Size (<span id="val-font-size">70</span>px)</label>
               <input type="range" id="setting-font-size" min="30" max="140" value="70">
             </div>
+
+            <div class="form-group">
+              <label for="setting-text-color">Text Color</label>
+              <input type="color" id="setting-text-color" class="color-picker" value="#111111">
+            </div>
+
+            <div class="form-group">
+              <label>Text Style</label>
+              <div id="text-style-grid" class="chip-grid"></div>
+              <input type="hidden" id="setting-text-style" value="flat">
+              <p class="style-hint">Engraved and Embossed look best when the text color is close to the background color.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="setting-text-depth">Style Depth / Strength (<span id="val-text-depth">6</span>)</label>
+              <input type="range" id="setting-text-depth" min="1" max="20" value="6">
+            </div>
+
+            <h4 class="style-title">Layout</h4>
 
             <div class="form-row">
               <div class="form-group">
@@ -237,19 +257,9 @@
               </div>
             </div>
 
-            <div class="form-row">
-              <div class="form-group">
-                <label for="setting-text-color">Text Color</label>
-                <input type="color" id="setting-text-color" class="color-picker" value="#111111">
-              </div>
-              <div class="form-group">
-                <label for="setting-bg-color">Background Style</label>
-                <select id="setting-bg-color" class="input-control">
-                  <option value="genius-gradient">Genius Grey/White Gradient</option>
-                  <option value="#121212">Dark Black</option>
-                  <option value="#ffffff">Pure White</option>
-                </select>
-              </div>
+            <div class="form-group">
+              <label for="setting-line-gap">Line Gap (<span id="val-line-gap">1.40</span>×)</label>
+              <input type="range" id="setting-line-gap" min="0.9" max="2.6" step="0.05" value="1.4">
             </div>
 
             <div class="form-group">
@@ -260,6 +270,46 @@
                 <option value="right">Right</option>
               </select>
             </div>
+
+            <h4 class="style-title">Background</h4>
+
+            <div id="bg-grid" class="chip-grid"></div>
+            <input type="hidden" id="setting-bg-color" value="genius-gradient">
+
+            <div class="form-group">
+              <label for="bg-custom-color">Or pick any solid color</label>
+              <input type="color" id="bg-custom-color" class="color-picker" value="#121212">
+            </div>
+
+            <div id="bg-image-controls" style="display: none;">
+              <div class="form-row">
+                <button type="button" id="btn-bg-image-pick" class="btn secondary">Choose / change image</button>
+                <button type="button" id="btn-bg-image-remove" class="btn secondary">Remove</button>
+              </div>
+              <input type="file" id="bg-image-input" accept="image/*" hidden>
+
+              <div class="form-group">
+                <label for="setting-bg-image-effect">Image Effect</label>
+                <select id="setting-bg-image-effect" class="input-control">
+                  <option value="plain">Plain photo</option>
+                  <option value="blur">Blurred</option>
+                  <option value="frost">Frosted glass (full)</option>
+                  <option value="panel">Glass panel over photo</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="setting-bg-blur">Glass / Blur Amount (<span id="val-bg-blur">14</span>)</label>
+                <input type="range" id="setting-bg-blur" min="0" max="40" value="14">
+              </div>
+              <div class="form-group">
+                <label for="setting-bg-dim">Darken (<span id="val-bg-dim">25</span>%)</label>
+                <input type="range" id="setting-bg-dim" min="0" max="85" value="25">
+              </div>
+            </div>
+
+            <h4 class="style-title">Highlight &amp; underline style</h4>
+            <div id="hl-style-grid" class="chip-grid"></div>
+            <input type="hidden" id="setting-hl-style" value="solid">
           </div>
         </div>
 
@@ -296,7 +346,7 @@
               </div>
             </div>
 
-            <button id="btn-start-export" class="btn primary-btn export-btn">🎬 Start Export</button>
+            <button id="btn-start-export" class="btn primary-btn export-btn">Start export</button>
 
             <!-- Export Progress -->
             <div id="export-progress-container" class="export-progress-container" style="display: none;">
@@ -307,7 +357,7 @@
               <div class="progress-bar-bg">
                 <div id="export-progress-fill" class="progress-bar-fill"></div>
               </div>
-              <button id="btn-cancel-export" class="btn danger-btn" style="margin-top: 8px;">Cancel Export</button>
+              <button id="btn-cancel-export" class="btn danger-btn" style="margin-top: 8px;">Cancel export</button>
             </div>
           </div>
         </div>
@@ -315,14 +365,13 @@
     </main>
   </div>
 
-  <script src="fullscreen.js"></script>
-  <script src="global.js"></script>
-  <script src="storage.js"></script>
-  <script src="audio.js"></script>
-  <!-- Include FFmpeg.wasm (v0.11.6 for simple global JS usage) -->
-  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
-  <script src="exporter.js"></script>
-  <script src="main.js"></script>
+  <script src="fullscreen.js?v=20261017"></script>
+  <script src="global.js?v=20261017"></script>
+  <script src="storage.js?v=20261017"></script>
+  <script src="audio.js?v=20261017"></script>
+  <script src="styles.js?v=20261017"></script>
+  <script src="exporter.js?v=20261017"></script>
+  <script src="main.js?v=20261017"></script>
 </body>
 
 </html>

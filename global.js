@@ -13,7 +13,14 @@ window.APP_CONFIG = {
     marginLeftPercent: 15,
     marginRightPercent: 15,
     textAlign: 'center',
-    lineHeight: 1.4
+    lineHeight: 1.4,
+    textStyle: 'flat',
+    textDepth: 6,
+    bgImage: '',
+    bgImageEffect: 'plain',
+    bgBlur: 14,
+    bgDim: 25,
+    hlStyle: 'solid'
   }
 };
 
