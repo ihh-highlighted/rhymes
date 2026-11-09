@@ -121,8 +121,124 @@ const StyleKit = (() => {
       .join("&") +
     "&display=swap";
 
+  // ---- fonts you upload (kept in IndexedDB so they survive reloads) ----
+  const customFonts = [];
+
+  const FontStore = (() => {
+    const DB = "rhyme-studio";
+    const STORE = "fonts";
+    function open() {
+      return new Promise((res, rej) => {
+        const r = indexedDB.open(DB, 1);
+        r.onupgradeneeded = () => r.result.createObjectStore(STORE, { keyPath: "id" });
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+    }
+    async function run(mode, fn) {
+      const db = await open();
+      return new Promise((res, rej) => {
+        const t = db.transaction(STORE, mode);
+        const req = fn(t.objectStore(STORE));
+        t.oncomplete = () => {
+          db.close();
+          res(req ? req.result : undefined);
+        };
+        t.onerror = t.onabort = () => {
+          db.close();
+          rej(t.error);
+        };
+      });
+    }
+    return {
+      getAll: () => run("readonly", (s) => s.getAll()),
+      put: (rec) => run("readwrite", (s) => s.put(rec)),
+      remove: (id) => run("readwrite", (s) => s.delete(id)),
+    };
+  })();
+
+  function allFonts() {
+    return FONTS.concat(customFonts);
+  }
+
+  async function registerCustomFont(id, name, buffer) {
+    const family = "cf_" + id;
+    const face = new FontFace(family, buffer);
+    await face.load(); // throws if it isn't a real font file
+    document.fonts.add(face);
+    const entry = {
+      group: "My fonts",
+      label: name,
+      value: `'${family}', sans-serif`,
+      weight: "normal",
+      id,
+      custom: true,
+      face,
+    };
+    customFonts.push(entry);
+    return entry;
+  }
+
+  async function loadSavedFonts() {
+    try {
+      const recs = await FontStore.getAll();
+      for (const r of recs || []) {
+        try {
+          await registerCustomFont(r.id, r.name, r.buffer.slice(0));
+        } catch (e) {
+          console.warn("Saved font could not be loaded:", r.name, e);
+        }
+      }
+    } catch (e) {
+      console.warn("Font storage unavailable:", e);
+    }
+    return customFonts;
+  }
+
+  async function importFontFile(file) {
+    const buffer = await file.arrayBuffer();
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const name = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim() || "Custom font";
+    const entry = await registerCustomFont(id, name, buffer.slice(0));
+    try {
+      await FontStore.put({ id, name, buffer });
+    } catch (e) {
+      entry.sessionOnly = true; // works now, but won't be remembered
+    }
+    return entry;
+  }
+
+  async function removeCustomFont(id) {
+    const i = customFonts.findIndex((f) => f.id === id);
+    if (i >= 0) {
+      try {
+        document.fonts.delete(customFonts[i].face);
+      } catch (e) {}
+      customFonts.splice(i, 1);
+    }
+    try {
+      await FontStore.remove(id);
+    } catch (e) {}
+  }
+
+  // Is this font really present (installed or loaded)? Compares text widths
+  // against three generic fallbacks: identical everywhere = it fell back.
+  let measureCtx = null;
+  function isFontAvailable(value) {
+    if (!measureCtx) measureCtx = makeCanvas(10, 10).getContext("2d");
+    const first = String(value).split(",")[0].trim();
+    const test = "mmmmmmmmmmlli wWMi@#";
+    for (const base of ["monospace", "serif", "sans-serif"]) {
+      measureCtx.font = `72px ${base}`;
+      const w0 = measureCtx.measureText(test).width;
+      measureCtx.font = `72px ${first}, ${base}`;
+      if (measureCtx.measureText(test).width !== w0) return true;
+    }
+    return false;
+  }
+
   function fontString(s, px) {
-    const f = FONTS.find((x) => x.value === s.fontFamily);
+    const f = allFonts().find((x) => x.value === s.fontFamily);
     const weight = f ? f.weight : "bold";
     return `${weight} ${px}px ${s.fontFamily}`;
   }
@@ -1111,6 +1227,11 @@ const StyleKit = (() => {
     fontString,
     ensureFont,
     populateFontSelect,
+    allFonts,
+    loadSavedFonts,
+    importFontFile,
+    removeCustomFont,
+    isFontAvailable,
     drawBackground,
     paintPreset,
     drawText,

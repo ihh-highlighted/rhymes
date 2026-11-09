@@ -3,11 +3,17 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#111116">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Rhyme Studio">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="theme-color" content="#1b1c20">
   <title>Rhyme Studio</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffd60a'/%3E%3Cstop offset='.6' stop-color='%23ff8a00'/%3E%3Cstop offset='1' stop-color='%23ff3d71'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=20261017">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link rel="stylesheet" href="style.css?v=20261029">
 </head>
 
 <body>
@@ -16,8 +22,9 @@
   <div id="dashboard-screen" class="screen active">
     <header class="top-bar">
       <h2>Rhyme Studio</h2>
+      <button type="button" class="btn icon-btn app-fs-btn" title="Full screen (hide browser bars)" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg></button>
       <!-- Import Controls -->
-      <button id="btn-import-project" class="btn secondary-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg><span>Import</span></button>
+      <button id="btn-import-project" class="btn secondary-btn" title="Import a project"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg><span>Import</span></button>
       <button id="btn-new-project" class="btn primary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New project</span></button>
       <!-- Styled with zero opacity instead of display:none to ensure browser compatibility -->
       <input type="file" id="import-file-input" accept=".json"
@@ -38,6 +45,7 @@
       <button id="btn-back" class="btn icon-btn" title="Back to projects"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
       <input type="text" id="project-title-input" class="title-input" value="Untitled Project" />
       <span class="status-indicator" id="save-status">Saved</span>
+      <button type="button" class="btn icon-btn app-fs-btn" title="Full screen (hide browser bars)" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg></button>
     </header>
 
     <main class="editor-workspace">
@@ -45,6 +53,7 @@
       <section class="preview-container">
         <div class="canvas-wrapper" id="canvas-wrapper">
           <canvas id="preview-canvas"></canvas>
+          <div id="preview-badge" class="preview-badge" style="display: none;">Previewing timing</div>
         </div>
       </section>
 
@@ -79,9 +88,9 @@
           <button id="btn-redo-kf" class="btn secondary kf-btn" title="Redo keyframe change" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg></button>
 
           <button id="btn-add-kf" class="btn secondary">+ Add Keyframe</button>
-          <button id="btn-del-kf" class="btn danger-btn kf-btn">- Delete KF</button>
-          <span id="kf-status" class="kf-status">No KF at current time</span>
+          <button id="btn-del-kf" class="btn danger-btn kf-btn">Delete</button>
         </div>
+        <span id="kf-status" class="kf-status">No KF at current time</span>
 
         <div class="kbd-hint"><kbd>Space</kbd> play / pause &nbsp;·&nbsp; <kbd>←</kbd> <kbd>→</kbd> seek 1s &nbsp;·&nbsp; <kbd>Shift</kbd> + arrows seek 5s</div>
       </section>
@@ -115,12 +124,6 @@
               </label>
             </div>
 
-            <!-- Undo / Redo & Clear -->
-            <div class="undo-redo-group">
-              <button id="btn-undo-hl" class="btn secondary-btn action-btn">Undo</button>
-              <button id="btn-redo-hl" class="btn secondary-btn action-btn">Redo</button>
-              <button id="btn-clear-hl" class="btn danger-btn action-btn">Clear all</button>
-            </div>
           </div>
 
           <!-- Tool selector -->
@@ -128,6 +131,19 @@
             <button class="tool-btn active" data-tool="highlight">Highlight</button>
             <button class="tool-btn" data-tool="underline"><u>U</u>nderline</button>
             <button class="tool-btn" data-tool="clear">Clear</button>
+            <button class="tool-btn" data-tool="configure">Configure</button>
+          </div>
+
+          <!-- Configure: list of every highlight / underline with timing controls -->
+          <div id="hl-config-panel" class="hl-config" style="display: none;">
+            <div class="hl-config-head">
+              <div class="seg-control" id="hl-config-filter">
+                <button type="button" class="seg-btn active" data-filter="all">All</button>
+                <button type="button" class="seg-btn" data-filter="screen">On screen</button>
+              </div>
+              <span id="hl-config-count" class="hl-config-count"></span>
+            </div>
+            <div id="hl-config-list" class="hl-config-list"></div>
           </div>
 
           <!-- Expanded Color Palette Picker -->
@@ -176,6 +192,13 @@
           </div>
 
           <p class="highlight-instructions" id="highlight-instructions"></p>
+
+            <!-- Undo / Redo & Clear: pinned to the bottom so it is always one tap away from the colors -->
+            <div class="undo-redo-group hl-dock">
+              <button id="btn-undo-hl" class="btn secondary-btn action-btn">Undo</button>
+              <button id="btn-redo-hl" class="btn secondary-btn action-btn">Redo</button>
+              <button id="btn-clear-hl" class="btn danger-btn action-btn">Clear all</button>
+            </div>
         </div>
 
         <!-- RECORDING TAB -->
@@ -211,105 +234,152 @@
           </div>
         </div>
 
-        <!-- Style Settings Tab -->
+        <!-- Style Settings Tab: every group is a dropdown (one open at a time) -->
         <div id="tab-settings" class="tab-content">
-          <div class="settings-form">
+          <div class="settings-form acc-list">
 
-            <h4 class="style-title">Text</h4>
-
-            <div class="form-group">
-              <label for="setting-font">Font</label>
-              <select id="setting-font" class="input-control"></select>
-            </div>
-
-            <div class="form-group">
-              <label for="setting-font-size">Font Size (<span id="val-font-size">70</span>px)</label>
-              <input type="range" id="setting-font-size" min="30" max="140" value="70">
-            </div>
-
-            <div class="form-group">
-              <label for="setting-text-color">Text Color</label>
-              <input type="color" id="setting-text-color" class="color-picker" value="#111111">
-            </div>
-
-            <div class="form-group">
-              <label>Text Style</label>
-              <div id="text-style-grid" class="chip-grid"></div>
-              <input type="hidden" id="setting-text-style" value="flat">
-              <p class="style-hint">Engraved and Embossed look best when the text color is close to the background color.</p>
-            </div>
-
-            <div class="form-group">
-              <label for="setting-text-depth">Style Depth / Strength (<span id="val-text-depth">6</span>)</label>
-              <input type="range" id="setting-text-depth" min="1" max="20" value="6">
-            </div>
-
-            <h4 class="style-title">Layout</h4>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label for="setting-margin-left">Left Margin (<span id="val-margin-left">15</span>%)</label>
-                <input type="range" id="setting-margin-left" min="0" max="45" value="15">
+            <!-- Font -->
+            <section class="acc" data-acc="font">
+              <button type="button" id="font-picker-btn" class="acc-head" aria-expanded="false">
+                <span id="font-picker-sample" class="acc-icon font-picker-sample">Aa</span>
+                <span class="acc-meta"><span class="acc-title">Font</span><span id="font-picker-name" class="font-picker-name">Impact</span></span>
+                <svg class="acc-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div id="font-picker-panel" class="acc-body" hidden>
+                <input type="hidden" id="setting-font" value="Impact, sans-serif">
+                <div id="font-notice" class="font-notice" style="display: none;"></div>
+                <div id="font-list" class="font-list"></div>
+                <div class="font-upload">
+                  <button type="button" id="btn-upload-font" class="btn secondary-btn">Upload your own font (.ttf, .otf, .woff)</button>
+                  <input type="file" id="font-file-input" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" hidden>
+                </div>
               </div>
-              <div class="form-group">
-                <label for="setting-margin-right">Right Margin (<span id="val-margin-right">15</span>%)</label>
-                <input type="range" id="setting-margin-right" min="0" max="45" value="15">
+            </section>
+
+            <!-- Text -->
+            <section class="acc" data-acc="text">
+            <button type="button" class="acc-head" aria-expanded="false">
+              <span class="acc-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5h16v2"/><path d="M12 5v14"/><path d="M9 19h6"/></svg></span>
+              <span class="acc-meta"><span class="acc-title">Text</span><span class="acc-sum" id="sum-text">70px · Flat</span></span>
+              <svg class="acc-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+              <div class="acc-body" hidden>
+                <div class="form-group">
+                  <label for="setting-font-size">Font Size (<span id="val-font-size">70</span>px)</label>
+                  <input type="range" id="setting-font-size" min="30" max="140" value="70">
+                </div>
+
+                <div class="form-group">
+                  <label for="setting-text-color">Text Color</label>
+                  <input type="color" id="setting-text-color" class="color-picker" value="#111111">
+                </div>
+
+                <div class="form-group">
+                  <label>Text Style</label>
+                  <div id="text-style-grid" class="chip-grid"></div>
+                  <input type="hidden" id="setting-text-style" value="flat">
+                  <p class="style-hint">Engraved and Embossed look best when the text color is close to the background color.</p>
+                </div>
+
+                <div class="form-group">
+                  <label for="setting-text-depth">Style Depth / Strength (<span id="val-text-depth">6</span>)</label>
+                  <input type="range" id="setting-text-depth" min="1" max="20" value="6">
+                </div>
               </div>
-            </div>
+            </section>
 
-            <div class="form-group">
-              <label for="setting-line-gap">Line Gap (<span id="val-line-gap">1.40</span>×)</label>
-              <input type="range" id="setting-line-gap" min="0.9" max="2.6" step="0.05" value="1.4">
-            </div>
+            <!-- Layout -->
+            <section class="acc" data-acc="layout">
+            <button type="button" class="acc-head" aria-expanded="false">
+              <span class="acc-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h6"/></svg></span>
+              <span class="acc-meta"><span class="acc-title">Layout</span><span class="acc-sum" id="sum-layout">15% / 15% · Center</span></span>
+              <svg class="acc-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+              <div class="acc-body" hidden>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="setting-margin-left">Left Margin (<span id="val-margin-left">15</span>%)</label>
+                    <input type="range" id="setting-margin-left" min="0" max="45" value="15">
+                  </div>
+                  <div class="form-group">
+                    <label for="setting-margin-right">Right Margin (<span id="val-margin-right">15</span>%)</label>
+                    <input type="range" id="setting-margin-right" min="0" max="45" value="15">
+                  </div>
+                </div>
 
-            <div class="form-group">
-              <label for="setting-align">Text Alignment</label>
-              <select id="setting-align" class="input-control">
-                <option value="center">Center</option>
-                <option value="left">Left</option>
-                <option value="right">Right</option>
-              </select>
-            </div>
+                <div class="form-group">
+                  <label for="setting-line-gap">Line Gap (<span id="val-line-gap">1.40</span>×)</label>
+                  <input type="range" id="setting-line-gap" min="0.9" max="2.6" step="0.05" value="1.4">
+                </div>
 
-            <h4 class="style-title">Background</h4>
-
-            <div id="bg-grid" class="chip-grid"></div>
-            <input type="hidden" id="setting-bg-color" value="genius-gradient">
-
-            <div class="form-group">
-              <label for="bg-custom-color">Or pick any solid color</label>
-              <input type="color" id="bg-custom-color" class="color-picker" value="#121212">
-            </div>
-
-            <div id="bg-image-controls" style="display: none;">
-              <div class="form-row">
-                <button type="button" id="btn-bg-image-pick" class="btn secondary">Choose / change image</button>
-                <button type="button" id="btn-bg-image-remove" class="btn secondary">Remove</button>
+                <div class="form-group">
+                  <label for="setting-align">Text Alignment</label>
+                  <select id="setting-align" class="input-control">
+                    <option value="center">Center</option>
+                    <option value="left">Left</option>
+                    <option value="right">Right</option>
+                  </select>
+                </div>
               </div>
-              <input type="file" id="bg-image-input" accept="image/*" hidden>
+            </section>
 
-              <div class="form-group">
-                <label for="setting-bg-image-effect">Image Effect</label>
-                <select id="setting-bg-image-effect" class="input-control">
-                  <option value="plain">Plain photo</option>
-                  <option value="blur">Blurred</option>
-                  <option value="frost">Frosted glass (full)</option>
-                  <option value="panel">Glass panel over photo</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="setting-bg-blur">Glass / Blur Amount (<span id="val-bg-blur">14</span>)</label>
-                <input type="range" id="setting-bg-blur" min="0" max="40" value="14">
-              </div>
-              <div class="form-group">
-                <label for="setting-bg-dim">Darken (<span id="val-bg-dim">25</span>%)</label>
-                <input type="range" id="setting-bg-dim" min="0" max="85" value="25">
-              </div>
-            </div>
+            <!-- Background -->
+            <section class="acc" data-acc="background">
+            <button type="button" class="acc-head" aria-expanded="false">
+              <span class="acc-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="m21 15-4.5-4.5L6 21"/></svg></span>
+              <span class="acc-meta"><span class="acc-title">Background</span><span class="acc-sum" id="sum-bg">Background</span></span>
+              <svg class="acc-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+              <div class="acc-body" hidden>
+                <div id="bg-grid" class="chip-grid"></div>
+                <input type="hidden" id="setting-bg-color" value="genius-gradient">
 
-            <h4 class="style-title">Highlight &amp; underline style</h4>
-            <div id="hl-style-grid" class="chip-grid"></div>
-            <input type="hidden" id="setting-hl-style" value="solid">
+                <div class="form-group">
+                  <label for="bg-custom-color">Or pick any solid color</label>
+                  <input type="color" id="bg-custom-color" class="color-picker" value="#121212">
+                </div>
+
+                <div id="bg-image-controls" style="display: none;">
+                  <div class="form-row">
+                    <button type="button" id="btn-bg-image-pick" class="btn secondary">Choose / change image</button>
+                    <button type="button" id="btn-bg-image-remove" class="btn secondary">Remove</button>
+                  </div>
+                  <input type="file" id="bg-image-input" accept="image/*" hidden>
+
+                  <div class="form-group">
+                    <label for="setting-bg-image-effect">Image Effect</label>
+                    <select id="setting-bg-image-effect" class="input-control">
+                      <option value="plain">Plain photo</option>
+                      <option value="blur">Blurred</option>
+                      <option value="frost">Frosted glass (full)</option>
+                      <option value="panel">Glass panel over photo</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="setting-bg-blur">Glass / Blur Amount (<span id="val-bg-blur">14</span>)</label>
+                    <input type="range" id="setting-bg-blur" min="0" max="40" value="14">
+                  </div>
+                  <div class="form-group">
+                    <label for="setting-bg-dim">Darken (<span id="val-bg-dim">25</span>%)</label>
+                    <input type="range" id="setting-bg-dim" min="0" max="85" value="25">
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Highlight & underline style -->
+            <section class="acc" data-acc="highlight">
+            <button type="button" class="acc-head" aria-expanded="false">
+              <span class="acc-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg></span>
+              <span class="acc-meta"><span class="acc-title">Highlight &amp; underline</span><span class="acc-sum" id="sum-hl">Solid</span></span>
+              <svg class="acc-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+              <div class="acc-body" hidden>
+                <div id="hl-style-grid" class="chip-grid"></div>
+                <input type="hidden" id="setting-hl-style" value="solid">
+              </div>
+            </section>
+
           </div>
         </div>
 
@@ -365,13 +435,21 @@
     </main>
   </div>
 
-  <script src="fullscreen.js?v=20261017"></script>
-  <script src="global.js?v=20261017"></script>
-  <script src="storage.js?v=20261017"></script>
-  <script src="audio.js?v=20261017"></script>
-  <script src="styles.js?v=20261017"></script>
-  <script src="exporter.js?v=20261017"></script>
-  <script src="main.js?v=20261017"></script>
+  <script src="fullscreen.js?v=20261029"></script>
+  <script src="global.js?v=20261029"></script>
+  <script src="storage.js?v=20261029"></script>
+  <script src="audio.js?v=20261029"></script>
+  <script src="styles.js?v=20261029"></script>
+  <script src="exporter.js?v=20261029"></script>
+  <script src="main.js?v=20261029"></script>
+  <script>
+    // lets the browser offer "Install app" so it opens with no browser bars
+    if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("sw.js").catch(function () {});
+      });
+    }
+  </script>
 </body>
 
 </html>

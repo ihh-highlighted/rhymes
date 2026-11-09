@@ -115,6 +115,22 @@ document.addEventListener("DOMContentLoaded", () => {
   const customHlColor = document.getElementById("custom-hl-color");
   const toolButtons = document.querySelectorAll(".tool-btn");
   const highlightHint = document.getElementById("highlight-instructions");
+  const hlConfigPanel = document.getElementById("hl-config-panel");
+  const fontPickerBtn = document.getElementById("font-picker-btn");
+  const fontPickerPanel = document.getElementById("font-picker-panel");
+  const fontPickerSample = document.getElementById("font-picker-sample");
+  const fontPickerName = document.getElementById("font-picker-name");
+  const fontList = document.getElementById("font-list");
+  const fontNotice = document.getElementById("font-notice");
+  const fontFileInput = document.getElementById("font-file-input");
+  const btnUploadFont = document.getElementById("btn-upload-font");
+  let googleFontsFailed = false;
+  const hlConfigList = document.getElementById("hl-config-list");
+  const hlConfigCount = document.getElementById("hl-config-count");
+  const hlFilterBtns = document.querySelectorAll("#hl-config-filter .seg-btn");
+  const paletteSection = document.querySelector(".color-palette-section");
+  let hlConfigFilter = "all";
+  let hlConfigTimer = null;
   if (!window.AppState.highlightTool) window.AppState.highlightTool = "highlight";
 
   // Recording Controls
@@ -153,8 +169,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let animationFrameId = null;
 
-  canvas.width = window.APP_CONFIG.CANVAS_WIDTH;
-  canvas.height = window.APP_CONFIG.CANVAS_HEIGHT;
+  // PREVIEW QUALITY
+  // The editor preview is a small window, so it is drawn at a reduced size and
+  // 30 fps to keep editing smooth on phones. Full quality (1920x1080, 60 fps)
+  // is only used in fullscreen. Exports use their own canvas and are unaffected.
+  const PREVIEW_WIDTH = 960; // editor preview width in pixels (height follows 16:9)
+  const PREVIEW_FPS = 30;
+  const PREVIEW_FRAME_MS = 1000 / PREVIEW_FPS;
+
+  function isFullscreenNow() {
+    const el = document.fullscreenElement || document.webkitFullscreenElement;
+    return !!el && el.classList.contains("preview-container");
+  }
+
+  function applyPreviewQuality() {
+    const cfg = window.APP_CONFIG;
+    const w = isFullscreenNow() ? cfg.CANVAS_WIDTH : PREVIEW_WIDTH;
+    const h = Math.round((w * cfg.CANVAS_HEIGHT) / cfg.CANVAS_WIDTH);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; // resizing clears the canvas, so redraw straight away
+      canvas.height = h;
+      if (window.AppState.currentProject) {
+        renderCanvas(ctx, canvas.width, canvas.height, AudioManager.audio.currentTime || 0);
+      }
+    }
+  }
+  applyPreviewQuality();
+  document.addEventListener("fullscreenchange", applyPreviewQuality);
+  document.addEventListener("webkitfullscreenchange", applyPreviewQuality);
 
   AudioManager.init(onAudioTimeUpdate);
 
@@ -183,13 +225,19 @@ if (btnImportProject && importFileInput) {
 }
 
 
-  // --- 60 FPS PREVIEW RENDER LOOP ---
+  // --- PREVIEW RENDER LOOP (30 fps in editor, full rate in fullscreen) ---
   function startPlaybackLoop() {
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
 
-    function loop() {
+    let lastFrameTs = 0;
+    function loop(ts) {
       if (AudioManager.isPlaying) {
-        onAudioTimeUpdate();
+        // 30 fps in the editor, full refresh rate in fullscreen
+        const interval = isFullscreenNow() ? 0 : PREVIEW_FRAME_MS;
+        if (!interval || ts - lastFrameTs >= interval - 2) {
+          lastFrameTs = ts;
+          onAudioTimeUpdate();
+        }
         animationFrameId = requestAnimationFrame(loop);
       }
     }
@@ -232,6 +280,8 @@ if (btnImportProject && importFileInput) {
     window.AppState.wordTimings = project.wordTimings;
     window.AppState.manualScrollY = 0;
     resetKfHistory();
+    window.AppState.selectedHlId = null;
+    endTempPreview();
     window.AppState.isHighlightMode = false;
     window.AppState.isRecording = false;
     window.AppState.undoStack = [];
@@ -297,10 +347,7 @@ if (btnImportProject && importFileInput) {
     window.AppState.projects.forEach((project) => {
       const card = document.createElement("div");
       card.className = "project-card";
-      let hue = 0;
-      for (const ch of String(project.id)) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
       card.innerHTML = `
-      <div class="card-thumb" style="--h:${hue}"><span>Aa</span></div>
       <div class="card-info">
         <h3>${escapeHtml(project.title)}</h3>
         <p class="card-date">${new Date(project.updatedAt).toLocaleDateString()}</p>
@@ -533,6 +580,74 @@ function computeLyricsLayout(
 }
 
 // --- UNIVERSAL CANVAS RENDER FUNCTION ---
+// When a highlight/underline appears. A manual startTime wins; otherwise it
+// follows the recorded timing of its word (split evenly if a word has several).
+function lineAvgDuration(rawWords) {
+  let total = 0,
+    count = 0;
+  const wt = window.AppState.wordTimings;
+  for (let i = 0; i < rawWords.length - 1; i++) {
+    const t1 = wt ? wt[rawWords[i].startIdx] : undefined;
+    const t2 = wt ? wt[rawWords[i + 1].startIdx] : undefined;
+    if (t1 !== undefined && t2 !== undefined && t2 > t1) {
+      total += t2 - t1;
+      count++;
+    }
+  }
+  return count > 0 ? total / count : 0.35;
+}
+
+function computeHlTime(hl, wordObj, line, rawLineWordsMap) {
+  if (typeof hl.startTime === "number") return hl.startTime;
+
+  let hlTime = hl.timestamp !== undefined ? hl.timestamp : 0;
+  const wt = window.AppState.wordTimings;
+
+  if (wt && wt[wordObj.startIdx] !== undefined) {
+    const tWord = wt[wordObj.startIdx];
+    const rawWords = rawLineWordsMap[line.rawLineIndex] || [];
+    const wordIdxInRawLine = rawWords.findIndex(
+      (w) => w.startIdx === wordObj.startIdx,
+    );
+
+    const wordHls = window.AppState.highlights
+      .filter(
+        (h) =>
+          (h.type || "highlight") === (hl.type || "highlight") &&
+          Math.max(h.startIdx, wordObj.startIdx) <
+            Math.min(h.endIdx, wordObj.wordEndIdx),
+      )
+      .sort((a, b) => a.startIdx - b.startIdx);
+
+    const hlIndexInWord = wordHls.indexOf(hl);
+    const totalHlsInWord = wordHls.length;
+
+    let totalWordDuration = 0.3;
+    if (rawWords.length > 1) {
+      if (wordIdxInRawLine >= 0 && wordIdxInRawLine < rawWords.length - 1) {
+        const nextWord = rawWords[wordIdxInRawLine + 1];
+        const tNext = wt[nextWord.startIdx];
+        totalWordDuration =
+          tNext !== undefined && tNext > tWord
+            ? tNext - tWord
+            : lineAvgDuration(rawWords);
+      } else {
+        totalWordDuration = lineAvgDuration(rawWords);
+      }
+    }
+
+    const interWordGap = Math.min(0.1, totalWordDuration * 0.15);
+    const activeDuration = Math.max(0.01, totalWordDuration - interWordGap);
+
+    if (totalHlsInWord > 1 && hlIndexInWord >= 0) {
+      hlTime = tWord + (hlIndexInWord * activeDuration) / totalHlsInWord;
+    } else {
+      hlTime = tWord;
+    }
+  }
+  return hlTime;
+}
+
 function renderCanvas(
   targetCtx,
   width,
@@ -578,7 +693,9 @@ function renderCanvas(
   );
 
   const isHighlightMode =
-    window.AppState.isHighlightMode && !forcePreviewMode;
+    window.AppState.isHighlightMode &&
+    !forcePreviewMode &&
+    !window.AppState.tempPreview;
   const isRecording = window.AppState.isRecording && !forcePreviewMode;
 
   // 2. Draw Highlights (Background Boxes)
@@ -589,24 +706,6 @@ function renderCanvas(
     rawLineWordsMap[rIdx].push(...line.wordRanges);
   });
 
-  const getLineAvgDuration = (rawWords) => {
-    let total = 0,
-      count = 0;
-    for (let i = 0; i < rawWords.length - 1; i++) {
-      const t1 = window.AppState.wordTimings
-        ? window.AppState.wordTimings[rawWords[i].startIdx]
-        : undefined;
-      const t2 = window.AppState.wordTimings
-        ? window.AppState.wordTimings[rawWords[i + 1].startIdx]
-        : undefined;
-      if (t1 !== undefined && t2 !== undefined && t2 > t1) {
-        total += t2 - t1;
-        count++;
-      }
-    }
-    return count > 0 ? total / count : 0.35;
-  };
-
   window.AppState.highlights.forEach((hl) => {
     linesData.forEach((line) => {
       line.wordRanges.forEach((wordObj) => {
@@ -614,62 +713,7 @@ function renderCanvas(
         const overlapEnd = Math.min(hl.endIdx, wordObj.wordEndIdx);
 
         if (overlapStart < overlapEnd) {
-          let hlTime = hl.timestamp !== undefined ? hl.timestamp : 0;
-
-          if (
-            window.AppState.wordTimings &&
-            window.AppState.wordTimings[wordObj.startIdx] !== undefined
-          ) {
-            const tWord = window.AppState.wordTimings[wordObj.startIdx];
-            const rawWords = rawLineWordsMap[line.rawLineIndex] || [];
-            const wordIdxInRawLine = rawWords.findIndex(
-              (w) => w.startIdx === wordObj.startIdx,
-            );
-
-            const wordHls = window.AppState.highlights
-              .filter(
-                (h) =>
-                  (h.type || "highlight") === (hl.type || "highlight") &&
-                  Math.max(h.startIdx, wordObj.startIdx) <
-                    Math.min(h.endIdx, wordObj.wordEndIdx),
-              )
-              .sort((a, b) => a.startIdx - b.startIdx);
-
-            const hlIndexInWord = wordHls.indexOf(hl);
-            const totalHlsInWord = wordHls.length;
-
-            let totalWordDuration = 0.3;
-
-            if (rawWords.length > 1) {
-              if (
-                wordIdxInRawLine >= 0 &&
-                wordIdxInRawLine < rawWords.length - 1
-              ) {
-                const nextWord = rawWords[wordIdxInRawLine + 1];
-                const tNext = window.AppState.wordTimings[nextWord.startIdx];
-                if (tNext !== undefined && tNext > tWord) {
-                  totalWordDuration = tNext - tWord;
-                } else {
-                  totalWordDuration = getLineAvgDuration(rawWords);
-                }
-              } else {
-                totalWordDuration = getLineAvgDuration(rawWords);
-              }
-            }
-
-            const interWordGap = Math.min(0.1, totalWordDuration * 0.15);
-            const activeDuration = Math.max(
-              0.01,
-              totalWordDuration - interWordGap,
-            );
-
-            if (totalHlsInWord > 1 && hlIndexInWord >= 0) {
-              const delayPerHl = activeDuration / totalHlsInWord;
-              hlTime = tWord + hlIndexInWord * delayPerHl;
-            } else {
-              hlTime = tWord;
-            }
-          }
+          const hlTime = computeHlTime(hl, wordObj, line, rawLineWordsMap);
 
           let shouldDrawHighlight = false;
 
@@ -781,6 +825,46 @@ function renderCanvas(
       targetCtx.restore();
     });
   });
+
+  // Configure tool: outline the highlight/underline that is being edited
+  if (
+    !forcePreviewMode &&
+    !window.AppState.tempPreview &&
+    window.AppState.highlightTool === "configure" &&
+    window.AppState.selectedHlId
+  ) {
+    const sel = window.AppState.highlights.find(
+      (h) => h.id === window.AppState.selectedHlId,
+    );
+    if (sel) {
+      const k = scaleRatio;
+      linesData.forEach((line) => {
+        line.wordRanges.forEach((w) => {
+          const oS = Math.max(sel.startIdx, w.startIdx);
+          const oE = Math.min(sel.endIdx, w.wordEndIdx);
+          if (oS >= oE) return;
+          const x1 = Math.round(line.charXPositions[oS - line.startIdx]);
+          const x2 = Math.round(line.charXPositions[oE - line.startIdx]);
+          const top =
+            (sel.type === "underline" ? line.underlineTop - 6 * k : line.highlightTop) - 5 * k;
+          const bottom =
+            (sel.type === "underline"
+              ? line.underlineTop + line.underlineHeight + 6 * k
+              : line.highlightTop + line.highlightHeight) + 5 * k;
+          targetCtx.save();
+          targetCtx.lineJoin = "round";
+          targetCtx.setLineDash([10 * k, 7 * k]);
+          targetCtx.lineWidth = Math.max(4, 5 * k);
+          targetCtx.strokeStyle = "rgba(0,0,0,0.65)";
+          targetCtx.strokeRect(x1 - 7 * k, top, x2 - x1 + 14 * k, bottom - top);
+          targetCtx.lineWidth = Math.max(2, 3 * k);
+          targetCtx.strokeStyle = "#ffffff";
+          targetCtx.strokeRect(x1 - 7 * k, top, x2 - x1 + 14 * k, bottom - top);
+          targetCtx.restore();
+        });
+      });
+    }
+  }
 }
 
   // --- RECORDING SWIPE & TIMING SYSTEM ---
@@ -1109,6 +1193,7 @@ function renderCanvas(
     endIdx: null,
   };
   let gestureMode = null; // "scroll" | "select" | "clear"
+  let cfgTap = null; // pending tap on a highlight (Configure tool)
   let clearChanged = false;
   let clearUndoPushed = false;
   let lastTouchTime = 0;
@@ -1121,19 +1206,29 @@ function renderCanvas(
       "<strong>Underline</strong>: drag across words to underline them, or tap a word to underline all of it. Touch empty space and drag to scroll.",
     clear:
       "<strong>Clear</strong>: touch or drag over a highlight/underline to remove it. Touch empty space and drag to scroll.",
+    configure:
+      "<strong>Configure</strong>: tap a highlight on the preview, or pick it from the list, to change when it appears or its color. Touch empty space and drag to scroll.",
   };
   function updateToolUI() {
     const tool = window.AppState.highlightTool;
     const editing = window.AppState.isHighlightMode;
     toolButtons.forEach((b) => {
-      b.classList.toggle("active", editing && b.dataset.tool === tool);
-      b.disabled = !editing; // tools only exist inside Highlighting Mode
+      const isConfigure = b.dataset.tool === "configure";
+      // Highlight / Underline / Clear need Highlighting Mode; Configure works in both
+      b.classList.toggle("active", (editing || isConfigure) && b.dataset.tool === tool);
+      b.disabled = !editing && !isConfigure;
     });
     if (highlightHint) {
-      highlightHint.innerHTML = editing
-        ? HINTS[tool]
-        : "<strong>Preview mode</strong>: highlights appear at their timings and you can scroll the canvas. Switch to Highlighting Mode to use Highlight, Underline or Clear.";
+      highlightHint.innerHTML =
+        editing || tool === "configure"
+          ? HINTS[tool]
+          : "<strong>Preview mode</strong>: highlights appear at their timings and you can scroll the canvas. Switch to Highlighting Mode to use Highlight, Underline or Clear. Configure works in both modes.";
     }
+    const configuring = tool === "configure";
+    hlConfigPanel.style.display = configuring ? "block" : "none";
+    if (paletteSection) paletteSection.style.display = configuring ? "none" : "";
+    if (configuring) refreshHlConfig(true);
+    else window.AppState.selectedHlId = null;
   }
   toolButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1143,14 +1238,10 @@ function renderCanvas(
   });
   updateToolUI();
 
-  // Screen position -> canvas position + current layout
-  function getPointerLayout(clientX, clientY) {
+  // Current text layout (what is on the canvas right now)
+  function getCurrentLayout() {
     const proj = window.AppState.currentProject;
     if (!proj) return null;
-    const rect = canvas.getBoundingClientRect();
-    const canX = (clientX - rect.left) * (canvas.width / rect.width);
-    const canY = (clientY - rect.top) * (canvas.height / rect.height);
-
     const currentTime = AudioManager.audio.currentTime || 0;
     const scaleRatio = canvas.width / window.APP_CONFIG.CANVAS_WIDTH;
     const totalScrollY =
@@ -1165,7 +1256,21 @@ function renderCanvas(
       proj.settings,
       scaleRatio,
     );
-    return { canX, canY, linesData, fontPx: proj.settings.fontSize * scaleRatio };
+    const rawMap = {};
+    linesData.forEach((l) => {
+      (rawMap[l.rawLineIndex] = rawMap[l.rawLineIndex] || []).push(...l.wordRanges);
+    });
+    return { linesData, rawMap, fontPx: proj.settings.fontSize * scaleRatio };
+  }
+
+  // Screen position -> canvas position + current layout
+  function getPointerLayout(clientX, clientY) {
+    const L = getCurrentLayout();
+    if (!L) return null;
+    const rect = canvas.getBoundingClientRect();
+    const canX = (clientX - rect.left) * (canvas.width / rect.width);
+    const canY = (clientY - rect.top) * (canvas.height / rect.height);
+    return { canX, canY, linesData: L.linesData, fontPx: L.fontPx };
   }
 
   function nearestLocalIdx(line, canX) {
@@ -1306,10 +1411,31 @@ function renderCanvas(
     clearUndoPushed = false;
     activeHighlightDrag = { startIdx: null, endIdx: null };
 
+    cfgTap = null;
+    if (window.AppState.tempPreview) return;
+
+    // Configure tool (Preview or Highlighting mode): a tap on a highlight opens
+    // it, dragging anywhere still scrolls.
+    if (window.AppState.highlightTool === "configure") {
+      const p0 = getPointerLayout(clientX, clientY);
+      const L = getCurrentLayout();
+      if (p0 && L) {
+        const now = AudioManager.audio.currentTime || 0;
+        const hits = findAnnotationsAt(p0).filter(
+          (h) => window.AppState.isHighlightMode || getHlInfo(h, L).time <= now,
+        );
+        if (hits.length > 0) {
+          cfgTap = { hl: hits[hits.length - 1], x: clientX, y: clientY, moved: false };
+        }
+      }
+      return;
+    }
+
     if (!window.AppState.isHighlightMode) return;
 
     const p = getPointerLayout(clientX, clientY);
     if (!p) return;
+
     const hit = findWordAtPoint(p);
     if (!hit) return; // touched empty space -> scroll
 
@@ -1345,8 +1471,13 @@ function renderCanvas(
     } else if (gestureMode === "clear") {
       const p = getPointerLayout(clientX, clientY);
       if (p) removeAnnotationsAt(p);
+    } else if (gestureMode === "configure") {
+      // tap only
     } else {
       // scroll (preview mode, or empty space in edit mode)
+      if (cfgTap && Math.hypot(clientX - cfgTap.x, clientY - cfgTap.y) > 8) {
+        cfgTap.moved = true; // it was a scroll, not a tap
+      }
       const deltaY = clientY - startY;
       startY = clientY;
 
@@ -1360,11 +1491,15 @@ function renderCanvas(
 
       renderCanvas(ctx, canvas.width, canvas.height, currentTime);
       updateKfUI();
+      scheduleHlConfigRefresh();
     }
   }
 
   function onDragEnd() {
     if (!isDragging) return;
+
+    if (cfgTap && !cfgTap.moved) selectHlFromCanvas(cfgTap.hl);
+    cfgTap = null;
 
     if (gestureMode === "select" && activeHighlightDrag.startIdx !== null) {
       let a = Math.min(activeHighlightDrag.startIdx, activeHighlightDrag.endIdx);
@@ -1439,6 +1574,7 @@ function renderCanvas(
       canvas.height,
       AudioManager.audio.currentTime || 0,
     );
+    scheduleHlConfigRefresh();
   }
 
   audioUpload.addEventListener("change", (e) => {
@@ -1720,6 +1856,7 @@ function renderCanvas(
 
   function triggerSave() {
     if (!window.AppState.currentProject) return;
+    refreshHlConfig(false);
 
     saveStatus.textContent = "Saving...";
 
@@ -1772,6 +1909,7 @@ function renderCanvas(
     );
   }
   function refreshStyleUI() {
+    updateFontButton();
     valFontSize.textContent = settingFontSize.value;
     valMarginLeft.textContent = settingMarginLeft.value;
     valMarginRight.textContent = settingMarginRight.value;
@@ -1783,6 +1921,7 @@ function renderCanvas(
     StyleKit.setActiveChip(bgGrid, settingBgColor.value);
     StyleKit.setActiveChip(textStyleGrid, settingTextStyle.value);
     StyleKit.setActiveChip(hlStyleGrid, settingHlStyle.value);
+    updateStyleSummaries();
 
     bgImageControls.style.display =
       settingBgColor.value === "image" ? "block" : "none";
@@ -1992,7 +2131,11 @@ function renderCanvas(
         segs[0][0] === hl.startIdx &&
         segs[0][1] === hl.endIdx
       ) {
-        out.push({ ...hl, type });
+        out.push({
+          ...hl,
+          type,
+          id: hl.id || "hl_" + Date.now() + "_" + out.length,
+        });
         return;
       }
       segs.forEach(([a, b], i) => {
@@ -2070,6 +2213,522 @@ function renderCanvas(
     input.addEventListener("input", onSettingsChange);
   });
 
+
+  // =====================================================================
+  // CONFIGURE TOOL: every highlight/underline with its text, color and
+  // start time. Tap one (list or preview) to open it and change its timing.
+  // Times use the same clock as the timeline (0:00 = start of the trim).
+  // =====================================================================
+  function fmtHlTime(abs) {
+    const rel = Math.max(0, abs - (AudioManager.trimStart || 0));
+    const m = Math.floor(rel / 60);
+    const sec = rel - m * 60;
+    return m + ":" + sec.toFixed(2).padStart(5, "0");
+  }
+  function parseHlTime(str) {
+    const t = String(str).trim().replace(",", ".");
+    if (!t) return NaN;
+    let rel;
+    if (t.includes(":")) {
+      const [mm, ss] = t.split(":");
+      rel = parseFloat(mm) * 60 + parseFloat(ss);
+    } else {
+      rel = parseFloat(t);
+    }
+    return rel + (AudioManager.trimStart || 0);
+  }
+
+  function getHlInfo(hl, layout) {
+    let line = null;
+    let word = null;
+    outer: for (const ln of layout.linesData) {
+      for (const w of ln.wordRanges) {
+        if (Math.max(hl.startIdx, w.startIdx) < Math.min(hl.endIdx, w.wordEndIdx)) {
+          line = ln;
+          word = w;
+          break outer;
+        }
+      }
+    }
+    const manual = typeof hl.startTime === "number";
+    const time = manual
+      ? hl.startTime
+      : line
+        ? computeHlTime(hl, word, line, layout.rawMap)
+        : hl.timestamp || 0;
+    const onScreen = !!line && line.highlightBottom >= 0 && line.highlightTop <= canvas.height;
+    return { time, manual, onScreen };
+  }
+
+  function refreshHlConfig(force) {
+    if (window.AppState.highlightTool !== "configure") return;
+    if (!force && hlConfigList.contains(document.activeElement)) return;
+
+    const layout = getCurrentLayout();
+    if (!layout) return;
+    const text = lyricsInput.value;
+
+    let items = window.AppState.highlights.map((hl) => ({
+      hl,
+      ...getHlInfo(hl, layout),
+    }));
+    const total = items.length;
+    if (hlConfigFilter === "screen") items = items.filter((i) => i.onScreen);
+    items.sort((a, b) => a.time - b.time);
+
+    hlConfigCount.textContent =
+      hlConfigFilter === "screen"
+        ? items.length + " of " + total + " on screen"
+        : total + (total === 1 ? " item" : " items");
+
+    if (items.length === 0) {
+      hlConfigList.innerHTML =
+        '<div class="hl-empty">' +
+        (total === 0
+          ? "No highlights yet. Use the Highlight or Underline tool first."
+          : "Nothing on screen right now. Scroll the preview or choose All.") +
+        "</div>";
+      return;
+    }
+
+    const sel = window.AppState.selectedHlId;
+    hlConfigList.innerHTML = items
+      .map(({ hl, time, manual }) => {
+        const label = escapeHtml(text.slice(hl.startIdx, hl.endIdx));
+        const type = hl.type === "underline" ? "underline" : "highlight";
+        const open = hl.id === sel ? " open" : "";
+        return `
+        <div class="hl-item${open}" data-id="${escapeHtml(hl.id)}">
+          <button type="button" class="hl-item-head">
+            <span class="hl-dot ${type}" style="--c:${escapeHtml(hl.color)}"></span>
+            <span class="hl-text">${label}</span>
+            <span class="hl-time">${fmtHlTime(time)}${manual ? "<i>•</i>" : ""}</span>
+          </button>
+          <div class="hl-item-body">
+            <div class="hl-meta">${type === "underline" ? "Underline" : "Highlight"} on “${label}” · ${manual ? "manual time" : "time from recording"}</div>
+            <div class="hl-time-row">
+              <button type="button" class="btn" data-act="nudge" data-d="-0.1">−0.1s</button>
+              <input type="text" class="input-control hl-time-input" inputmode="decimal" value="${fmtHlTime(time)}" aria-label="Start time (m:ss.ss or seconds)">
+              <button type="button" class="btn" data-act="nudge" data-d="0.1">+0.1s</button>
+            </div>
+            <div class="hl-row">
+              <input type="color" class="hl-color" value="${escapeHtml(hl.color)}" title="Color">
+              <button type="button" class="btn" data-act="goto">Go to</button>
+              <button type="button" class="btn" data-act="play">Play</button>
+            </div>
+            <div class="hl-row">
+              <button type="button" class="btn" data-act="reset" ${manual ? "" : "disabled"}>Use recorded time</button>
+              <button type="button" class="btn danger-btn" data-act="delete">Delete</button>
+            </div>
+          </div>
+        </div>`;
+      })
+      .join("");
+  }
+
+  function scheduleHlConfigRefresh() {
+    if (hlConfigFilter !== "screen") return;
+    if (window.AppState.highlightTool !== "configure") return;
+    if (hlConfigTimer) return;
+    hlConfigTimer = setTimeout(() => {
+      hlConfigTimer = null;
+      refreshHlConfig(false);
+    }, 250);
+  }
+
+  function findHl(id) {
+    return window.AppState.highlights.find((h) => h.id === id);
+  }
+  function effectiveHlTime(hl) {
+    const layout = getCurrentLayout();
+    return layout ? getHlInfo(hl, layout).time : hl.timestamp || 0;
+  }
+
+  function updateHlRow(hl) {
+    const row = hlConfigList.querySelector('[data-id="' + hl.id.replace(/"/g, '\\"') + '"]');
+    if (!row) return;
+    const t = effectiveHlTime(hl);
+    row.querySelector(".hl-time").innerHTML = fmtHlTime(t) + "<i>•</i>";
+    row.querySelector(".hl-time-input").value = fmtHlTime(t);
+    row.querySelector(".hl-meta").textContent =
+      (hl.type === "underline" ? "Underline" : "Highlight") + " · manual time";
+    const reset = row.querySelector('[data-act="reset"]');
+    if (reset) reset.disabled = false;
+  }
+
+  function setHlTime(hl, absTime) {
+    if (!isFinite(absTime)) return;
+    let t = Math.max(0, absTime);
+    const dur = AudioManager.audio.duration;
+    if (isFinite(dur)) t = Math.min(t, dur);
+    t = Math.round(t * 1000) / 1000;
+    pushHighlightState();
+    hl.startTime = t;
+    triggerSave();
+    updateHlRow(hl);
+    requestRerender();
+  }
+
+  function selectHl(id, fromCanvas) {
+    window.AppState.selectedHlId = window.AppState.selectedHlId === id && !fromCanvas ? null : id;
+    refreshHlConfig(true);
+    const hl = findHl(window.AppState.selectedHlId);
+    if (hl) {
+      const layout = getCurrentLayout();
+      // opened from the list but not visible? jump to where it appears
+      if (!fromCanvas && layout && !getHlInfo(hl, layout).onScreen) {
+        jumpToKeyframe(effectiveHlTime(hl));
+      }
+      const row = hlConfigList.querySelector('[data-id="' + id.replace(/"/g, '\\"') + '"]');
+      if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    requestRerender();
+  }
+  function selectHlFromCanvas(hl) {
+    // the filter must not hide the thing you just tapped
+    selectHl(hl.id, true);
+  }
+
+  hlFilterBtns.forEach((b) =>
+    b.addEventListener("click", () => {
+      hlConfigFilter = b.dataset.filter;
+      hlFilterBtns.forEach((x) => x.classList.toggle("active", x === b));
+      refreshHlConfig(true);
+    }),
+  );
+
+  const previewBadge = document.getElementById("preview-badge");
+  function startTempPreview() {
+    window.AppState.tempPreview = true;
+    if (previewBadge) previewBadge.style.display = "block";
+    requestRerender();
+  }
+  function endTempPreview() {
+    if (!window.AppState.tempPreview) return;
+    window.AppState.tempPreview = false;
+    if (previewBadge) previewBadge.style.display = "none";
+    requestRerender();
+  }
+  // playback stopped (pause, jump, or end of song) -> back to the editing view
+  AudioManager.audio.addEventListener("pause", () => {
+    if (AudioManager.audio.paused) endTempPreview();
+  });
+  AudioManager.audio.addEventListener("ended", endTempPreview);
+  // keep the Play button and the render loop in step with the real audio state
+  // (song ended / trim end reached / paused by anything else)
+  AudioManager.audio.addEventListener("pause", () => {
+    btnPlay.textContent = "▶";
+    stopPlaybackLoop();
+  });
+
+  let hlColorBurst = false;
+  hlConfigList.addEventListener("click", (e) => {
+    const row = e.target.closest(".hl-item");
+    if (!row) return;
+    const id = row.dataset.id;
+
+    if (e.target.closest(".hl-item-head")) {
+      selectHl(id, false);
+      return;
+    }
+    const btn = e.target.closest("[data-act]");
+    if (!btn || btn.disabled) return;
+    const hl = findHl(id);
+    if (!hl) return;
+
+    switch (btn.dataset.act) {
+      case "nudge":
+        setHlTime(hl, effectiveHlTime(hl) + parseFloat(btn.dataset.d));
+        break;
+      case "goto":
+        jumpToKeyframe(effectiveHlTime(hl));
+        break;
+      case "play": {
+        if (btnPlay.disabled) break;
+        jumpToKeyframe(Math.max(AudioManager.trimStart || 0, effectiveHlTime(hl) - 1));
+        btnPlay.click();
+        // play it like the final video (highlights appear at their times);
+        // editing view comes back as soon as playback stops
+        if (!AudioManager.audio.paused && window.AppState.isHighlightMode) startTempPreview();
+        break;
+      }
+      case "reset":
+        pushHighlightState();
+        delete hl.startTime;
+        triggerSave();
+        refreshHlConfig(true);
+        requestRerender();
+        break;
+      case "delete":
+        pushHighlightState();
+        window.AppState.highlights = window.AppState.highlights.filter((h) => h.id !== id);
+        if (window.AppState.selectedHlId === id) window.AppState.selectedHlId = null;
+        triggerSave();
+        refreshHlConfig(true);
+        requestRerender();
+        break;
+    }
+  });
+
+  hlConfigList.addEventListener("change", (e) => {
+    const row = e.target.closest(".hl-item");
+    if (!row) return;
+    const hl = findHl(row.dataset.id);
+    if (!hl) return;
+
+    if (e.target.classList.contains("hl-time-input")) {
+      const t = parseHlTime(e.target.value);
+      if (isNaN(t)) {
+        e.target.value = fmtHlTime(effectiveHlTime(hl)); // not a time: put it back
+      } else {
+        setHlTime(hl, t);
+      }
+    } else if (e.target.classList.contains("hl-color")) {
+      hlColorBurst = false;
+      hl.color = e.target.value;
+      triggerSave();
+      refreshHlConfig(true);
+      requestRerender();
+    }
+  });
+  hlConfigList.addEventListener("input", (e) => {
+    if (!e.target.classList.contains("hl-color")) return;
+    const hl = findHl(e.target.closest(".hl-item").dataset.id);
+    if (!hl) return;
+    if (!hlColorBurst) {
+      pushHighlightState(); // one undo step for the whole color drag
+      hlColorBurst = true;
+    }
+    hl.color = e.target.value;
+    const dot = e.target.closest(".hl-item").querySelector(".hl-dot");
+    if (dot) dot.style.setProperty("--c", hl.color);
+    requestRerender();
+  });
+  hlConfigList.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.classList.contains("hl-time-input")) e.target.blur();
+  });
+
+
+  // =====================================================================
+  // FONT PICKER: every font shown in its own style, using your own lyrics
+  // as the sample text. Upload .ttf/.otf/.woff files to add your own.
+  // =====================================================================
+  function fontPreviewText() {
+    const first =
+      (lyricsInput.value || "")
+        .split("\n")
+        .map((l) => l.trim())
+        .find(Boolean) || "Rhyme Studio";
+    return first.split(/\s+/).slice(0, 2).join(" ").slice(0, 16);
+  }
+  function findFontEntry(value) {
+    return StyleKit.allFonts().find((f) => f.value === value);
+  }
+  function markActiveFontCard() {
+    fontList.querySelectorAll(".font-card").forEach((c) =>
+      c.classList.toggle("active", c.dataset.value === settingFont.value),
+    );
+  }
+  function updateFontButton() {
+    const f = findFontEntry(settingFont.value);
+    fontPickerName.textContent = f
+      ? f.label
+      : settingFont.value.split(",")[0].replace(/['"]/g, "");
+    fontPickerSample.style.fontFamily = settingFont.value;
+    fontPickerSample.style.fontWeight = f ? f.weight : "bold";
+    if (!fontPickerPanel.hidden) markActiveFontCard();
+  }
+
+  function renderFontList() {
+    const sample = fontPreviewText();
+    const fonts = StyleKit.allFonts();
+    const ordered = fonts.filter((f) => f.custom).concat(fonts.filter((f) => !f.custom));
+    fontList.innerHTML = "";
+    let group = null;
+    ordered.forEach((f) => {
+      if (f.group !== group) {
+        group = f.group;
+        const t = document.createElement("div");
+        t.className = "font-group-title";
+        t.textContent = group;
+        fontList.appendChild(t);
+      }
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "font-card";
+      card.dataset.value = f.value;
+
+      const smp = document.createElement("span");
+      smp.className = "font-sample";
+      smp.textContent = sample;
+      smp.style.fontFamily = f.value;
+      smp.style.fontWeight = f.weight;
+
+      const name = document.createElement("span");
+      name.className = "font-name";
+      name.textContent = f.label;
+
+      card.append(smp, name);
+      if (f.custom) {
+        const del = document.createElement("span");
+        del.className = "font-del";
+        del.dataset.id = f.id;
+        del.title = "Remove this font";
+        del.textContent = "×";
+        card.appendChild(del);
+      }
+      fontList.appendChild(card);
+    });
+    markActiveFontCard();
+    checkFontAvailability();
+  }
+
+  // Fonts that didn't load (offline / blocked / not on this device) get a tag,
+  // so a fallback is never mistaken for the real thing.
+  async function checkFontAvailability() {
+    const sample = fontPreviewText();
+    const fonts = StyleKit.allFonts();
+    await Promise.allSettled(
+      fonts.map((f) =>
+        document.fonts.load(StyleKit.fontString({ fontFamily: f.value }, 24), sample),
+      ),
+    );
+    let missingWeb = 0;
+    fontList.querySelectorAll(".font-card").forEach((card) => {
+      const f = fonts.find((x) => x.value === card.dataset.value);
+      if (!f) return;
+      const missing = !StyleKit.isFontAvailable(f.value);
+      card.classList.toggle("unavailable", missing);
+      const nameEl = card.querySelector(".font-name");
+      nameEl.querySelectorAll(".font-tag").forEach((t) => t.remove());
+      if (missing) {
+        const tag = document.createElement("span");
+        tag.className = "font-tag";
+        tag.textContent = f.group === "Classic" ? "not installed" : "not loaded";
+        nameEl.appendChild(tag);
+        if (f.group !== "Classic") missingWeb++;
+      }
+    });
+    if (googleFontsFailed || missingWeb > 0) {
+      fontNotice.style.display = "block";
+      fontNotice.textContent =
+        "Fonts tagged below aren't available here, so they show a fallback. Online fonts need internet access (and a browser that allows Google Fonts); Classic fonts depend on what your device has installed. You can upload your own .ttf at the bottom.";
+    } else {
+      fontNotice.style.display = "none";
+    }
+  }
+
+  // --- Style tab dropdowns (Font, Text, Layout, Background, Highlight) ---
+  // One group open at a time. Their headers ignore touches while the panel is
+  // scrolling (see the scroll lock below), so scrolling can't open/close them.
+  const accSections = Array.from(document.querySelectorAll("#tab-settings .acc"));
+  function setAccOpen(sec, open) {
+    const head = sec.querySelector(".acc-head");
+    const body = sec.querySelector(".acc-body");
+    head.setAttribute("aria-expanded", String(open));
+    body.hidden = !open;
+    if (open && sec.dataset.acc === "font") {
+      renderFontList();
+      const active = fontList.querySelector(".font-card.active");
+      if (active) active.scrollIntoView({ block: "nearest" });
+    }
+  }
+  accSections.forEach((sec) => {
+    sec.querySelector(".acc-head").addEventListener("click", () => {
+      const open = sec.querySelector(".acc-body").hidden; // closed now -> open it
+      accSections.forEach((o) => {
+        if (o !== sec) setAccOpen(o, false);
+      });
+      setAccOpen(sec, open);
+      if (open) requestAnimationFrame(() => sec.scrollIntoView({ block: "start", behavior: "smooth" }));
+    });
+  });
+
+  // short live summary on each dropdown header
+  function updateStyleSummaries() {
+    const $ = (id) => document.getElementById(id);
+    const label = (grid) => {
+      const el = grid && grid.querySelector(".chip.active span");
+      return el ? el.textContent.trim() : "";
+    };
+    const set = (id, txt) => {
+      const el = $(id);
+      if (el && el.textContent !== txt) el.textContent = txt;
+    };
+    const align = settingAlign.value || "center";
+    const bg = settingBgColor.value || "";
+    set("sum-text", settingFontSize.value + "px · " + (label(textStyleGrid) || "Flat"));
+    set(
+      "sum-layout",
+      settingMarginLeft.value + "% / " + settingMarginRight.value + "% · " +
+        align.charAt(0).toUpperCase() + align.slice(1),
+    );
+    set("sum-bg", label(bgGrid) || (/^#/.test(bg) ? "Custom " + bg.toUpperCase() : "Background"));
+    set("sum-hl", label(hlStyleGrid) || "Solid");
+  }
+
+  // --- Scroll lock: while a panel scrolls (and ~0.2s after, i.e. momentum),
+  // its controls ignore touches. A finger landing to stop the scroll can't
+  // toggle a dropdown, pick a style or nudge a slider by accident.
+  document.querySelectorAll(".tab-content").forEach((panel) => {
+    let t = null;
+    panel.addEventListener(
+      "scroll",
+      () => {
+        panel.classList.add("is-scrolling");
+        clearTimeout(t);
+        t = setTimeout(() => panel.classList.remove("is-scrolling"), 200);
+      },
+      { passive: true, capture: true }, // capture: also hears the font list scrolling
+    );
+  });
+
+  fontList.addEventListener("click", async (e) => {
+    const del = e.target.closest(".font-del");
+    if (del) {
+      e.stopPropagation();
+      if (!confirm("Remove this font from your library?")) return;
+      const current = findFontEntry(settingFont.value);
+      await StyleKit.removeCustomFont(del.dataset.id);
+      if (current && current.id === del.dataset.id) settingFont.value = "Impact, sans-serif";
+      renderFontList();
+      onSettingsChange();
+      return;
+    }
+    const card = e.target.closest(".font-card");
+    if (!card) return;
+    settingFont.value = card.dataset.value;
+    onSettingsChange(); // saves, loads the font and redraws the preview
+  });
+
+  fontFileInput.multiple = true;
+  btnUploadFont.addEventListener("click", () => fontFileInput.click());
+  fontFileInput.addEventListener("change", async () => {
+    const files = Array.from(fontFileInput.files || []);
+    fontFileInput.value = "";
+    let last = null;
+    for (const file of files) {
+      try {
+        last = await StyleKit.importFontFile(file);
+        if (last.sessionOnly) {
+          alert('"' + file.name + '" works for now but your browser wouldn\'t store it, so you\'ll need to upload it again next time.');
+        }
+      } catch (err) {
+        alert('"' + file.name + '" isn\'t a usable font file. Use .ttf, .otf, .woff or .woff2.');
+      }
+    }
+    if (last) settingFont.value = last.value;
+    renderFontList();
+    onSettingsChange();
+  });
+
+  // bring back fonts uploaded earlier, then redraw (a project may use one)
+  StyleKit.loadSavedFonts().then(() => {
+    updateFontButton();
+    if (!fontPickerPanel.hidden) renderFontList();
+    requestRerender();
+  });
+
   // --- Style pickers (visual chips) ---
   try {
     const gfLink = document.createElement("link");
@@ -2079,11 +2738,15 @@ function renderCanvas(
       StyleKit.ensureFont({ fontFamily: settingFont.value }).then(() => {
         renderTextThumbs();
         requestRerender();
+        if (!fontPickerPanel.hidden) renderFontList();
       });
+    };
+    gfLink.onerror = () => {
+      googleFontsFailed = true;
+      if (!fontPickerPanel.hidden) renderFontList();
     };
     document.head.appendChild(gfLink);
 
-    StyleKit.populateFontSelect(settingFont);
 
     StyleKit.buildChipGrid(bgGrid, StyleKit.BG_PRESETS, (item) => {
       if (item.id === "image" && !currentBgImage) {
@@ -2133,6 +2796,7 @@ function renderCanvas(
       onSettingsChange();
     });
 
+    updateStyleSummaries();
   } catch (err) {
     console.error("Style tab failed to initialise:", err);
   }
