@@ -674,6 +674,70 @@ input[type="range"]:disabled {
 }
 
 /* ---------------------------------------------------------------------
+   Theme picker (project screen)
+   --------------------------------------------------------------------- */
+.theme-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.theme-picker-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.theme-seg {
+  display: inline-flex;
+  padding: 4px;
+  gap: 3px;
+  background: var(--well);
+  border-radius: 14px;
+  box-shadow: var(--press-sm);
+}
+.theme-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-mute);
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.theme-opt[aria-checked="true"] {
+  background: linear-gradient(60deg, var(--face-lo), var(--face-hi));
+  color: var(--ink-hi);
+  box-shadow: var(--raise-sm);
+}
+.theme-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+/* the two preview dots keep their own colours in both themes */
+.theme-dot-aesthetic {
+  background: linear-gradient(135deg, #3fd8b6 50%, #1d1e23 50%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.theme-dot-minimal {
+  background: linear-gradient(135deg, #f6e6d8 50%, #4b2e22 50%);
+  box-shadow: inset 0 0 0 1px rgba(75, 46, 34, 0.45);
+}
+.theme-dot-dark {
+  background: linear-gradient(135deg, #000000 50%, #d4d6da 50%);
+  box-shadow: inset 0 0 0 1px rgba(212, 214, 218, 0.45);
+}
+
+/* ---------------------------------------------------------------------
    Editor layout (phone first: pinned preview + transport, panel scrolls)
    --------------------------------------------------------------------- */
 .editor-workspace {

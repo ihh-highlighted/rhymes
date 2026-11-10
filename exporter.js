@@ -87,6 +87,10 @@ const SimpleMp4 = (() => {
       this._vTs = []; // video timestamps (us), turned into durations at finalize
     }
 
+    setVideoDescription(description) {
+      if (description && !this.video.description) this.video.description = description;
+    }
+
     addVideo(data, isKey, timestampUs, description) {
       if (description && !this.video.description) this.video.description = description;
       this.video.samples.push({ data, dur: 0, key: !!isKey, time: timestampUs / 1e6 });
@@ -108,11 +112,34 @@ const SimpleMp4 = (() => {
       return this.video.samples.length > 0 && !!this.video.description;
     }
 
+    // Encoders may emit B-frames: frames come out in DECODE order but each chunk's
+    // timestamp is its DISPLAY time, so the timestamps are not increasing. A plain
+    // "next timestamp - this timestamp" then gives wrong / negative durations, and
+    // strict decoders (Instagram, editors) show a frozen first frame and green blocks.
+    // Fix: decode times (DTS) = the display times sorted, which always increase;
+    // the difference (display - decode) goes in a 'ctts' box, and an edit list
+    // makes the video start exactly at 0.
     _videoDurations() {
-      const ts = this._vTs.map((t) => Math.round((t * 90000) / 1e6));
+      const pts = this._vTs.map((t) => Math.round((t * 90000) / 1e6)); // display time, decode order
+      const n = pts.length;
+      const dts = pts.slice().sort((a, b) => a - b);
       const samples = this.video.samples;
-      for (let i = 0; i < samples.length; i++) {
-        samples[i].dur = i + 1 < samples.length ? Math.max(1, ts[i + 1] - ts[i]) : (i > 0 ? samples[i - 1].dur : Math.round(90000 / this.fps));
+
+      let reordered = false;
+      let minOff = 0;
+      const off = pts.map((p, i) => {
+        const o = p - dts[i];
+        if (o !== 0) reordered = true;
+        if (o < minOff) minOff = o;
+        return o;
+      });
+      this.video.ctsShift = reordered ? -minOff : 0; // keep every offset >= 0
+      this.video.cts = reordered ? off.map((o) => o + this.video.ctsShift) : null;
+      if (reordered) console.info('Encoder used B-frames: writing reorder info (ctts/elst).');
+
+      for (let i = 0; i < n; i++) {
+        samples[i].dur = i + 1 < n ? Math.max(1, dts[i + 1] - dts[i]) : (i > 0 ? samples[i - 1].dur : Math.round(90000 / this.fps));
+        samples[i].time = dts[i] / 90000; // interleave by decode time
       }
     }
 
@@ -147,6 +174,12 @@ const SimpleMp4 = (() => {
       const stts = fullBox('stts', 0, 0, sttsParts);
 
       const parts = [stsd, stts];
+      if (track.kind === 'video' && track.cts) {
+        const cr = rle(track.cts);
+        const cParts = [u32(cr.length)];
+        cr.forEach(([c, o]) => cParts.push(u32(c), u32(o)));
+        parts.push(fullBox('ctts', 0, 0, cParts));
+      }
       if (track.kind === 'video') {
         const keys = [];
         track.samples.forEach((s, i) => s.key && keys.push(i + 1));
@@ -179,6 +212,10 @@ const SimpleMp4 = (() => {
       const dinf = box('dinf', [fullBox('dref', 0, 0, [u32(1), fullBox('url ', 0, 1, [])])]);
       const minf = box('minf', [mediaHeader, dinf, this._stbl(track, offsets)]);
       const mdia = box('mdia', [mdhd, hdlr, minf]);
+      if (isVideo && track.ctsShift > 0) {
+        const elst = fullBox('elst', 0, 0, [u32(1), u32(durMovie), u32(track.ctsShift), u16(1), u16(0)]);
+        return box('trak', [tkhd, box('edts', [elst]), mdia]);
+      }
       return box('trak', [tkhd, mdia]);
     }
 
@@ -316,9 +353,12 @@ const ExportManager = {
 
   // Find a video encoder config that REALLY produces output on this device
   // (some phones say "supported" and then never deliver a single frame).
-  async findWorkingVideoConfig(width, height, fps, bitrate) {
+  async findWorkingVideoConfig(width, height, fps, bitrate, preferSoftware) {
     const codecs = ['avc1.64002A', 'avc1.640028', 'avc1.4D0028', 'avc1.42E028', 'avc1.42E01F'];
-    const accels = ['no-preference', 'prefer-software'];
+    // The software encoder writes a very standard stream (clean IDR start, no
+    // intra-refresh / open-GOP tricks), which strict decoders such as Instagram's
+    // or editors' are happier with. It is slower, so it is opt-in.
+    const accels = preferSoftware ? ['prefer-software', 'no-preference'] : ['no-preference', 'prefer-software'];
     let stalls = 0;
     for (const accel of accels) {
       for (const codec of codecs) {
@@ -438,7 +478,7 @@ const ExportManager = {
     const bitrate = dims.width >= 1920 ? 8_000_000 : dims.width >= 1280 ? 5_000_000 : 2_500_000;
     const timeInfo = this.getExportDuration(project);
 
-    const videoCfg = await this.findWorkingVideoConfig(dims.width, dims.height, fps, bitrate);
+    const videoCfg = await this.findWorkingVideoConfig(dims.width, dims.height, fps, bitrate, !!options.softwareEncoder);
     if (!videoCfg) throw fallback('No working H.264 encoder found');
 
     const canvas = document.createElement('canvas');
@@ -452,6 +492,15 @@ const ExportManager = {
     let lastOutputAt = performance.now();
     let videoOutputs = 0;
 
+    // WARM-UP: the first frames out of a (hardware) H.264 encoder are the ones
+    // most likely to be odd (rate control still settling, first-frame quirks),
+    // which strict decoders show as a green flash on the first frame. So a few
+    // throw-away copies of frame 0 go in first, their output is discarded, and
+    // the real video starts with a fresh keyframe once the encoder is settled.
+    const WARMUP = 4;
+    const frameDurUs = 1e6 / fps;
+    const warmUs = Math.round(WARMUP * frameDurUs);
+
     const videoEncoder = new VideoEncoder({
       output: (chunk, meta) => {
         lastOutputAt = performance.now();
@@ -459,7 +508,10 @@ const ExportManager = {
         const data = new Uint8Array(chunk.byteLength);
         chunk.copyTo(data);
         const desc = meta && meta.decoderConfig && meta.decoderConfig.description;
-        mp4.addVideo(data, chunk.type === 'key', chunk.timestamp, desc ? new Uint8Array(desc.buffer ? desc.buffer.slice(desc.byteOffset, desc.byteOffset + desc.byteLength) : desc) : null);
+        const descBytes = desc ? new Uint8Array(desc.buffer ? desc.buffer.slice(desc.byteOffset, desc.byteOffset + desc.byteLength) : desc) : null;
+        mp4.setVideoDescription(descBytes); // keep the avcC even from discarded warm-up output
+        if (chunk.timestamp < warmUs) return; // warm-up frame: discard
+        mp4.addVideo(data, chunk.type === 'key', chunk.timestamp - warmUs, null);
       },
       error: (e) => { encoderError = e; }
     });
@@ -501,23 +553,26 @@ const ExportManager = {
 
       // ---- VIDEO: deterministic frame loop ----
       const totalFrames = Math.max(1, Math.round(timeInfo.duration * fps));
-      const frameDurUs = 1e6 / fps;
       const keyEvery = fps * 2;
 
-      for (let i = 0; i < totalFrames; i++) {
+      // n counts every submitted frame; i is the real frame index (negative = warm-up)
+      for (let n = 0; n < totalFrames + WARMUP; n++) {
+        const i = n - WARMUP;
         if (this.cancelled) throw new Error('__cancelled__');
         if (encoderError) throw fallback('Encoder error: ' + (encoderError.message || encoderError));
 
-        const t = timeInfo.start + i / fps;
+        const t = timeInfo.start + Math.max(i, 0) / fps;
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, dims.width, dims.height);
         renderFunction(ctx, dims.width, dims.height, t, true);
 
         const frame = new VideoFrame(canvas, {
-          timestamp: Math.round(i * frameDurUs),
+          timestamp: Math.round(n * frameDurUs),
           duration: Math.round(frameDurUs)
         });
-        videoEncoder.encode(frame, { keyFrame: i % keyEvery === 0 });
+        // keyframes: the very first frame, the first REAL frame, then every 2 s
+        const isKey = n === 0 || i === 0 || (i > 0 && i % keyEvery === 0);
+        videoEncoder.encode(frame, { keyFrame: isKey });
         frame.close();
 
         // Backpressure (phones run out of memory otherwise) + stall detection
@@ -531,12 +586,12 @@ const ExportManager = {
           await this._sleep(4);
         }
 
-        if (i % 3 === 0) {
+        if (i > 0 && i % 3 === 0) {
           if (onProgress) onProgress((i / totalFrames) * (audioEncoder ? 92 : 98));
           await this._sleep(0); // let the UI repaint
         }
         // very first frames must produce output soon, or this encoder is broken
-        if (i === 12 && videoOutputs === 0) {
+        if (n === 12 + WARMUP && videoOutputs === 0) {
           await this._sleep(3000);
           if (videoOutputs === 0) throw fallback('Encoder produced no output');
         }

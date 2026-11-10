@@ -13,7 +13,66 @@
   <meta name="theme-color" content="#1b1c20">
   <title>Rhyme Studio</title>
   <link rel="icon" type="image/png" href="icon-192.png">
-  <link rel="stylesheet" href="style.css?v=20261029">
+  <link rel="stylesheet" href="style.css?v=20261101">
+  <script>
+    /* THEME: "aesthetic" (default) or "minimal" (flat, system fonts, no extra assets).
+       Runs before the first paint so there is no flash, and remembers the choice. */
+    (function () {
+      var KEY = "rs_theme", V = "20261101";
+      var root = document.documentElement;
+      /* aesthetic = the rich dark theme. minimal = skin + brown. dark = black + silver.
+         minimal and dark share one small stylesheet (minimal.css); only colours differ. */
+      var BAR = { aesthetic: "#1b1c20", minimal: "#f6e6d8", dark: "#000000" };
+      function stored() {
+        try {
+          var v = localStorage.getItem(KEY);
+          return v === "minimal" || v === "dark" ? v : "aesthetic";
+        } catch (e) { return "aesthetic"; }
+      }
+      function meta(n) { return document.querySelector('meta[name="' + n + '"]'); }
+      function paintMeta(t) {
+        var m = meta("theme-color"); if (m) m.setAttribute("content", BAR[t]);
+        var s = meta("apple-mobile-web-app-status-bar-style");
+        if (s) s.setAttribute("content", t === "minimal" ? "default" : "black-translucent");
+      }
+      function syncButtons(t) {
+        var b = document.querySelectorAll("[data-theme-opt]");
+        for (var i = 0; i < b.length; i++) b[i].setAttribute("aria-checked", String(b[i].getAttribute("data-theme-opt") === t));
+      }
+      function setAttrs(t) {
+        root.setAttribute("data-theme", t === "aesthetic" ? "aesthetic" : "minimal");
+        if (t === "dark") root.setAttribute("data-tone", "dark"); else root.removeAttribute("data-tone");
+        current = t; paintMeta(t); syncButtons(t);
+      }
+      var current = "aesthetic";
+      function apply(t, save) {
+        if (save) { try { localStorage.setItem(KEY, t); } catch (e) {} }
+        var link = document.getElementById("theme-minimal-css");
+        if (t === "aesthetic") {
+          setAttrs(t);
+          if (link && link.parentNode) link.parentNode.removeChild(link); // Aesthetic loads nothing extra
+          return;
+        }
+        if (link) return setAttrs(t);
+        link = document.createElement("link");
+        link.id = "theme-minimal-css"; link.rel = "stylesheet"; link.href = "minimal.css?v=" + V;
+        link.onload = link.onerror = function () { setAttrs(t); };
+        document.head.appendChild(link);
+      }
+      var t0 = stored();
+      if (t0 !== "aesthetic") {
+        // written synchronously so the very first paint is already themed
+        document.write('<link id="theme-minimal-css" rel="stylesheet" href="minimal.css?v=' + V + '">');
+      }
+      setAttrs(t0);
+      window.RSTheme = { get: function () { return current; }, set: function (t) { apply(t, true); } };
+      document.addEventListener("click", function (e) {
+        var b = e.target.closest && e.target.closest("[data-theme-opt]");
+        if (b) apply(b.getAttribute("data-theme-opt"), true);
+      });
+      document.addEventListener("DOMContentLoaded", function () { syncButtons(t0); });
+    })();
+  </script>
 </head>
 
 <body>
@@ -34,6 +93,14 @@
       <div class="page-head">
         <h1>Your projects</h1>
         <p>Pick up where you left off, or start a new rhyme video.</p>
+      </div>
+      <div class="theme-picker" role="radiogroup" aria-label="Theme">
+        <span class="theme-picker-label">Theme</span>
+        <div class="theme-seg">
+          <button type="button" class="theme-opt" role="radio" aria-checked="true" data-theme-opt="aesthetic"><span class="theme-dot theme-dot-aesthetic"></span>Aesthetic</button>
+          <button type="button" class="theme-opt" role="radio" aria-checked="false" data-theme-opt="minimal"><span class="theme-dot theme-dot-minimal"></span>Minimal</button>
+          <button type="button" class="theme-opt" role="radio" aria-checked="false" data-theme-opt="dark"><span class="theme-dot theme-dot-dark"></span>Dark</button>
+        </div>
       </div>
       <div id="project-list" class="project-grid"></div>
     </main>
@@ -242,11 +309,11 @@
             <section class="acc" data-acc="font">
               <button type="button" id="font-picker-btn" class="acc-head" aria-expanded="false">
                 <span id="font-picker-sample" class="acc-icon font-picker-sample">Aa</span>
-                <span class="acc-meta"><span class="acc-title">Font</span><span id="font-picker-name" class="font-picker-name">Impact</span></span>
+                <span class="acc-meta"><span class="acc-title">Font</span><span id="font-picker-name" class="font-picker-name">Jost</span></span>
                 <svg class="acc-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
               </button>
               <div id="font-picker-panel" class="acc-body" hidden>
-                <input type="hidden" id="setting-font" value="Impact, sans-serif">
+                <input type="hidden" id="setting-font" value="jost, serif">
                 <div id="font-notice" class="font-notice" style="display: none;"></div>
                 <div id="font-list" class="font-list"></div>
                 <div class="font-upload">
@@ -260,18 +327,18 @@
             <section class="acc" data-acc="text">
             <button type="button" class="acc-head" aria-expanded="false">
               <span class="acc-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5h16v2"/><path d="M12 5v14"/><path d="M9 19h6"/></svg></span>
-              <span class="acc-meta"><span class="acc-title">Text</span><span class="acc-sum" id="sum-text">70px · Flat</span></span>
+              <span class="acc-meta"><span class="acc-title">Text</span><span class="acc-sum" id="sum-text">68px · Flat</span></span>
               <svg class="acc-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
             </button>
               <div class="acc-body" hidden>
                 <div class="form-group">
-                  <label for="setting-font-size">Font Size (<span id="val-font-size">70</span>px)</label>
-                  <input type="range" id="setting-font-size" min="30" max="140" value="70">
+                  <label for="setting-font-size">Font Size (<span id="val-font-size">68</span>px)</label>
+                  <input type="range" id="setting-font-size" min="30" max="140" value="68">
                 </div>
 
                 <div class="form-group">
                   <label for="setting-text-color">Text Color</label>
-                  <input type="color" id="setting-text-color" class="color-picker" value="#111111">
+                  <input type="color" id="setting-text-color" class="color-picker" value="#000000">
                 </div>
 
                 <div class="form-group">
@@ -292,18 +359,18 @@
             <section class="acc" data-acc="layout">
             <button type="button" class="acc-head" aria-expanded="false">
               <span class="acc-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h6"/></svg></span>
-              <span class="acc-meta"><span class="acc-title">Layout</span><span class="acc-sum" id="sum-layout">15% / 15% · Center</span></span>
+              <span class="acc-meta"><span class="acc-title">Layout</span><span class="acc-sum" id="sum-layout">7% / 7% · Left</span></span>
               <svg class="acc-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
             </button>
               <div class="acc-body" hidden>
                 <div class="form-row">
                   <div class="form-group">
-                    <label for="setting-margin-left">Left Margin (<span id="val-margin-left">15</span>%)</label>
-                    <input type="range" id="setting-margin-left" min="0" max="45" value="15">
+                    <label for="setting-margin-left">Left Margin (<span id="val-margin-left">7</span>%)</label>
+                    <input type="range" id="setting-margin-left" min="0" max="45" value="7">
                   </div>
                   <div class="form-group">
-                    <label for="setting-margin-right">Right Margin (<span id="val-margin-right">15</span>%)</label>
-                    <input type="range" id="setting-margin-right" min="0" max="45" value="15">
+                    <label for="setting-margin-right">Right Margin (<span id="val-margin-right">7</span>%)</label>
+                    <input type="range" id="setting-margin-right" min="0" max="45" value="7">
                   </div>
                 </div>
 
@@ -316,7 +383,7 @@
                   <label for="setting-align">Text Alignment</label>
                   <select id="setting-align" class="input-control">
                     <option value="center">Center</option>
-                    <option value="left">Left</option>
+                    <option value="left" selected>Left</option>
                     <option value="right">Right</option>
                   </select>
                 </div>
@@ -327,7 +394,7 @@
             <section class="acc" data-acc="background">
             <button type="button" class="acc-head" aria-expanded="false">
               <span class="acc-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="m21 15-4.5-4.5L6 21"/></svg></span>
-              <span class="acc-meta"><span class="acc-title">Background</span><span class="acc-sum" id="sum-bg">Background</span></span>
+              <span class="acc-meta"><span class="acc-title">Background</span><span class="acc-sum" id="sum-bg">Genius</span></span>
               <svg class="acc-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
             </button>
               <div class="acc-body" hidden>
@@ -413,6 +480,15 @@
                     <option value="30">30 FPS</option>
                   </select>
                 </div>
+
+                <div class="form-group">
+                  <label class="free-roam-toggle">
+                    <input type="checkbox" id="export-software">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">Compatibility encoder (slower)</span>
+                  </label>
+                  <p class="style-hint">Turn this on if the exported video shows a green flash at the start in Instagram or another editor.</p>
+                </div>
               </div>
             </div>
 
@@ -435,13 +511,13 @@
     </main>
   </div>
 
-  <script src="fullscreen.js?v=20261029"></script>
-  <script src="global.js?v=20261029"></script>
-  <script src="storage.js?v=20261029"></script>
-  <script src="audio.js?v=20261029"></script>
-  <script src="styles.js?v=20261029"></script>
-  <script src="exporter.js?v=20261029"></script>
-  <script src="main.js?v=20261029"></script>
+  <script src="fullscreen.js?v=20261101"></script>
+  <script src="global.js?v=20261101"></script>
+  <script src="storage.js?v=20261101"></script>
+  <script src="audio.js?v=20261101"></script>
+  <script src="styles.js?v=20261101"></script>
+  <script src="exporter.js?v=20261101"></script>
+  <script src="main.js?v=20261101"></script>
   <script>
     // lets the browser offer "Install app" so it opens with no browser bars
     if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
